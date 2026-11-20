@@ -47,6 +47,7 @@ export async function createUserAccount(params: {
   role: UserRole;
   therapist_id?: string;
   owner_account_id?: string;
+  created_by_owner_id?: string;
   is_active?: boolean;
 }): Promise<UserAccount> {
   const cleanUser = params.username.trim();
@@ -62,6 +63,7 @@ export async function createUserAccount(params: {
     role: params.role,
     therapist_id: params.role === 'THERAPIST' ? params.therapist_id : undefined,
     owner_account_id: params.owner_account_id ?? accountId,
+    created_by_owner_id: params.created_by_owner_id,
     salt,
     hash,
     is_active: params.is_active ?? true,

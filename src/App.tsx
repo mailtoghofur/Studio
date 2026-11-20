@@ -35,6 +35,7 @@ import {
 } from './lib/adminLock';
 import {
   clearAllAccountDatabases,
+  deleteAccountDatabase,
   loadAccountDatabase,
   resetAccountDatabase,
   saveAccountDatabase,
@@ -352,27 +353,27 @@ export default function App() {
     setNoticeMessage('Data terapis berhasil diperbarui.');
   };
 
-  const handleAddTherapistWithOptionalAccount = (
-    newTherapist: Therapist,
-    newAccount?: UserAccount
-  ) => {
+  const handleAddTherapist = (newTherapist: Therapist) => {
     updateAccountDb((prev) => ({
       ...prev,
       therapists: [...prev.therapists, newTherapist],
     }));
-    if (newAccount) {
-      setAccounts((prev) => [...prev, newAccount]);
-      setNoticeMessage(
-        `Terapis "${newTherapist.name}" beserta akun "${newAccount.username}" berhasil ditambahkan.`
-      );
-    } else {
-      setNoticeMessage(`Terapis "${newTherapist.name}" berhasil ditambahkan.`);
-    }
+    setNoticeMessage(
+      `Terapis "${newTherapist.name}" berhasil ditambahkan. Gunakan menu Manajemen Akun untuk membuatkan akun login.`
+    );
   };
 
   const handleCreateAccount = (newAcc: UserAccount) => {
     setAccounts((prev) => [...prev, newAcc]);
-    setNoticeMessage(`Akun "${newAcc.username}" berhasil dibuat.`);
+    const isSeparateDb = getWorkspaceOwnerId(newAcc) !== activeOwnerId;
+    if (isSeparateDb) {
+      loadAccountDatabase(newAcc.account_id, newAcc.username);
+      setNoticeMessage(
+        `Akun Admin "${newAcc.username}" berhasil dibuat dengan database baru terpisah.`
+      );
+    } else {
+      setNoticeMessage(`Akun "${newAcc.username}" berhasil dibuat.`);
+    }
   };
 
   const handleUpdateAccount = (updatedAcc: UserAccount) => {
@@ -396,12 +397,22 @@ export default function App() {
   };
 
   const handleRequestDeleteAccount = (targetAcc: UserAccount) => {
+    const ownsSeparateDb =
+      targetAcc.role === 'ADMIN' &&
+      getWorkspaceOwnerId(targetAcc) === targetAcc.account_id &&
+      getWorkspaceOwnerId(targetAcc) !== activeOwnerId;
+
     setConfirmDialog({
       title: 'Hapus Akun Login Ini?',
-      message: `Akun "${targetAcc.username}" tidak akan bisa digunakan lagi untuk masuk ke aplikasi.`,
+      message: ownsSeparateDb
+        ? `Akun "${targetAcc.username}" beserta database terpisah miliknya akan dihapus dan tidak dapat digunakan lagi.`
+        : `Akun "${targetAcc.username}" tidak akan bisa digunakan lagi untuk masuk ke aplikasi.`,
       confirmLabel: 'Ya, Hapus Akun',
       tone: 'danger',
       onConfirm: async () => {
+        if (ownsSeparateDb) {
+          deleteAccountDatabase(targetAcc.account_id);
+        }
         setAccounts((prev) =>
           prev.filter((a) => a.account_id !== targetAcc.account_id)
         );
@@ -454,6 +465,15 @@ export default function App() {
   const activeOwnerId = currentAccount ? getWorkspaceOwnerId(currentAccount) : '';
   const workspaceAccounts = useMemo(
     () => accounts.filter((acc) => getWorkspaceOwnerId(acc) === activeOwnerId),
+    [accounts, activeOwnerId]
+  );
+  const managedAccounts = useMemo(
+    () =>
+      accounts.filter(
+        (acc) =>
+          getWorkspaceOwnerId(acc) === activeOwnerId ||
+          acc.created_by_owner_id === activeOwnerId
+      ),
     [accounts, activeOwnerId]
   );
 
@@ -644,10 +664,8 @@ export default function App() {
           <TherapistsView
             therapists={therapists}
             accounts={workspaceAccounts}
-            allAccounts={accounts}
-            ownerAccountId={activeOwnerId}
             onRequestSaveTherapists={handleRequestSaveTherapists}
-            onAddTherapistWithOptionalAccount={handleAddTherapistWithOptionalAccount}
+            onAddTherapist={handleAddTherapist}
             onOpenAccountsTab={() => setActiveTab('accounts')}
           />
         )}
@@ -663,7 +681,7 @@ export default function App() {
 
         {isAdmin && activeTab === 'accounts' && (
           <AccountsView
-            accounts={workspaceAccounts}
+            accounts={managedAccounts}
             allAccounts={accounts}
             therapists={therapists}
             currentAccountId={currentAccount.account_id}

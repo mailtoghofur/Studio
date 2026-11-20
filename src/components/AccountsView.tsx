@@ -33,6 +33,7 @@ export function AccountsView({
 
   const [createOpen, setCreateOpen] = useState(false);
   const [role, setRole] = useState<UserRole>('THERAPIST');
+  const [adminDbMode, setAdminDbMode] = useState<'separate' | 'shared'>('separate');
   const [therapistId, setTherapistId] = useState(therapists[0]?.therapist_id ?? '');
   const [displayName, setDisplayName] = useState('');
   const [username, setUsername] = useState('');
@@ -58,8 +59,11 @@ export function AccountsView({
   const passwordRef = useRef<HTMLInputElement>(null);
   const confirmRef = useRef<HTMLInputElement>(null);
 
-  const activeAdminCount = accounts.filter(
-    (a) => a.role === 'ADMIN' && a.is_active
+  const activeWorkspaceAdminCount = accounts.filter(
+    (a) =>
+      getWorkspaceOwnerId(a) === ownerAccountId &&
+      a.role === 'ADMIN' &&
+      a.is_active
   ).length;
 
   const openCreateModal = () => {
@@ -68,6 +72,7 @@ export function AccountsView({
     );
     const chosen = unassigned ?? therapists[0];
     setRole('THERAPIST');
+    setAdminDbMode('separate');
     setTherapistId(chosen?.therapist_id ?? '');
     setDisplayName(chosen?.name ?? '');
     setUsername('');
@@ -118,13 +123,15 @@ export function AccountsView({
 
     setIsSaving(true);
     try {
+      const useSeparateDb = role === 'ADMIN' && adminDbMode === 'separate';
       const created = await createUserAccount({
         username: cleanUser,
         display_name: cleanDisplay || cleanUser,
         password,
         role,
         therapist_id: role === 'THERAPIST' ? therapistId : undefined,
-        owner_account_id: ownerAccountId,
+        owner_account_id: useSeparateDb ? undefined : ownerAccountId,
+        created_by_owner_id: useSeparateDb ? ownerAccountId : undefined,
         is_active: true,
       });
       setCreateOpen(false);
@@ -222,9 +229,14 @@ export function AccountsView({
                 ? therapistMap.get(acc.therapist_id)
                 : undefined;
               const isSelf = acc.account_id === currentAccountId;
-              const isPrimaryOwner = getWorkspaceOwnerId(acc) === acc.account_id && acc.account_id === ownerAccountId;
+              const accOwnerId = getWorkspaceOwnerId(acc);
+              const isSeparateDb = accOwnerId !== ownerAccountId;
+              const isPrimaryOwner = acc.account_id === ownerAccountId;
               const isLastActiveAdmin =
-                acc.role === 'ADMIN' && acc.is_active && activeAdminCount <= 1;
+                !isSeparateDb &&
+                acc.role === 'ADMIN' &&
+                acc.is_active &&
+                activeWorkspaceAdminCount <= 1;
 
               return (
                 <tr key={acc.account_id} className="hover:bg-neutral-50/70">
@@ -241,9 +253,13 @@ export function AccountsView({
                       <p className="text-xs text-neutral-600 tabular-nums">
                         ID Terapis: {acc.therapist_id}
                       </p>
+                    ) : isSeparateDb ? (
+                      <p className="text-xs text-amber-800">Database terpisah</p>
                     ) : isPrimaryOwner ? (
-                      <p className="text-xs text-neutral-600">Pemilik database akun ini</p>
-                    ) : null}
+                      <p className="text-xs text-neutral-600">Pemilik database saat ini</p>
+                    ) : (
+                      <p className="text-xs text-neutral-600">Berbagi database saat ini</p>
+                    )}
                   </td>
                   <td className="px-4 py-3 font-medium text-neutral-800">{acc.username}</td>
                   <td className="px-4 py-3 text-neutral-700">
@@ -399,26 +415,61 @@ export function AccountsView({
                   )}
                 </div>
               ) : (
-                <div>
-                  <label
-                    htmlFor="account-display-name"
-                    className="block text-sm font-medium text-neutral-800"
-                  >
-                    Nama Tampilan Admin <span className="text-red-700">*</span>
-                  </label>
-                  <input
-                    ref={displayNameRef}
-                    id="account-display-name"
-                    type="text"
-                    value={displayName}
-                    onChange={(e) => setDisplayName(e.target.value)}
-                    placeholder="Contoh: Admin Shift Sore"
-                    className="mt-1.5 min-h-[44px] w-full rounded-xl border border-neutral-200 bg-white px-3.5 py-2 text-base text-neutral-900 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-amber-700"
-                  />
-                  {formErrors.displayName && (
-                    <p className="mt-1.5 text-sm text-red-700">{formErrors.displayName}</p>
-                  )}
-                </div>
+                <>
+                  <div>
+                    <label
+                      htmlFor="account-display-name"
+                      className="block text-sm font-medium text-neutral-800"
+                    >
+                      Nama Tampilan Admin <span className="text-red-700">*</span>
+                    </label>
+                    <input
+                      ref={displayNameRef}
+                      id="account-display-name"
+                      type="text"
+                      value={displayName}
+                      onChange={(e) => setDisplayName(e.target.value)}
+                      placeholder="Contoh: Admin Shift Sore"
+                      className="mt-1.5 min-h-[44px] w-full rounded-xl border border-neutral-200 bg-white px-3.5 py-2 text-base text-neutral-900 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-amber-700"
+                    />
+                    {formErrors.displayName && (
+                      <p className="mt-1.5 text-sm text-red-700">{formErrors.displayName}</p>
+                    )}
+                  </div>
+
+                  <div>
+                    <span className="block text-sm font-medium text-neutral-800">
+                      Penyimpanan Database
+                    </span>
+                    <div className="mt-2 grid grid-cols-1 gap-2 sm:grid-cols-2">
+                      {(
+                        [
+                          { value: 'separate', label: 'Database baru terpisah' },
+                          { value: 'shared', label: 'Gabung database ini' },
+                        ] as const
+                      ).map((opt) => (
+                        <label
+                          key={opt.value}
+                          className={`flex min-h-[44px] cursor-pointer items-center gap-2.5 rounded-xl border px-3 py-2 ${
+                            adminDbMode === opt.value
+                              ? 'border-amber-700 bg-amber-50 text-neutral-900'
+                              : 'border-neutral-200 bg-white text-neutral-800'
+                          }`}
+                        >
+                          <input
+                            type="radio"
+                            name="adminDbMode"
+                            value={opt.value}
+                            checked={adminDbMode === opt.value}
+                            onChange={() => setAdminDbMode(opt.value)}
+                            className="h-4 w-4 accent-amber-700"
+                          />
+                          <span className="text-sm font-medium">{opt.label}</span>
+                        </label>
+                      ))}
+                    </div>
+                  </div>
+                </>
               )}
 
               <div>

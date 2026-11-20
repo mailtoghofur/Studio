@@ -4,7 +4,7 @@ Dokumen ini merangkum fitur dari PRD v1.0 beserta keputusan hasil klarifikasi pe
 
 ## Keputusan Teknis & Produk
 - **Penyimpanan Data**: Menggunakan sistem database sederhana di browser (`localStorage`) yang tersimpan terpisah sesuai akun Admin pemilik (`klinik_db_<owner_account_id>`), dilengkapi cadangan/pulihkan JSON serta ekspor CSV (Reservasi, Layanan, Terapis, Pendapatan).
-- **Keamanan Akses**: Login menggunakan username dan kata sandi terenkripsi SHA-256 dengan garam acak di browser (tidak terhubung ke akun Google). Akun Admin dapat menambahkan akun Terapis atau Admin lain di dalam ruang kerja database yang sama, atau membuat akun Admin baru dengan database terpisah.
+- **Keamanan Akses**: Login menggunakan username dan kata sandi terenkripsi SHA-256 dengan garam acak di browser (tidak terhubung ke akun Google). Pembuatan akun baru (Terapis maupun Admin tambahan dengan database bersama atau database baru terpisah) hanya tersedia melalui menu **Manajemen Akun** oleh Admin.
 - **Operasional**: 7 hari seminggu (Senin–Minggu), pukul 10.00–21.00, jeda antarsesi 0 menit, kapasitas mengikuti jumlah terapis aktif.
 
 ## Daftar Fitur

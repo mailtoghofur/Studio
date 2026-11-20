@@ -16,6 +16,8 @@ export interface UserAccount {
   therapist_id?: string;
   /** ID akun Admin pemilik database yang dipakai bersama dalam satu cabang/klinik. */
   owner_account_id?: string;
+  /** ID workspace pembuat akun apabila akun ini memiliki database terpisah. */
+  created_by_owner_id?: string;
   salt: string;
   hash: string;
   is_active: boolean;

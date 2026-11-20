@@ -1,6 +1,6 @@
-// Layar masuk utama menggunakan username dan kata sandi, serta pendaftaran akun Admin baru dengan database terpisah.
+// Layar masuk utama menggunakan username dan kata sandi (pembuatan akun baru hanya melalui Manajemen Akun setelah masuk).
 
-import { Eye, EyeOff, RotateCcw, UserPlus } from 'lucide-react';
+import { Eye, EyeOff, RotateCcw } from 'lucide-react';
 import { useRef, useState } from 'react';
 import { CLINIC_LOGO_SRC, CLINIC_NAME } from '../config';
 import { createUserAccount, verifyAccountLogin } from '../lib/adminLock';
@@ -20,12 +20,7 @@ export function AdminLockScreen({
   onRequestResetLock,
 }: AdminLockScreenProps) {
   const validPasswordAccounts = accounts.filter((acc) => Boolean(acc.hash && acc.salt));
-  const hasAnyAccount = validPasswordAccounts.length > 0;
-
-  const [mode, setMode] = useState<'login' | 'register'>(() =>
-    hasAnyAccount ? 'login' : 'register'
-  );
-  const isRegisterMode = !hasAnyAccount || mode === 'register';
+  const isInitialSetup = validPasswordAccounts.length === 0;
 
   const [displayName, setDisplayName] = useState('');
   const [username, setUsername] = useState('');
@@ -34,27 +29,17 @@ export function AdminLockScreen({
   const [showPassword, setShowPassword] = useState(false);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const [fieldErrors, setFieldErrors] = useState<{
-    displayName?: string;
     username?: string;
     password?: string;
     confirmPassword?: string;
   }>({});
   const [isProcessing, setIsProcessing] = useState(false);
 
-  const displayNameRef = useRef<HTMLInputElement>(null);
   const usernameRef = useRef<HTMLInputElement>(null);
   const passwordRef = useRef<HTMLInputElement>(null);
   const confirmRef = useRef<HTMLInputElement>(null);
 
-  const switchMode = (nextMode: 'login' | 'register') => {
-    setMode(nextMode);
-    setErrorMsg(null);
-    setFieldErrors({});
-    setPassword('');
-    setConfirmPassword('');
-  };
-
-  const handleRegisterSubmit = async (e: React.FormEvent) => {
+  const handleInitialSetupSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     const cleanUser = username.trim();
     const cleanDisplay = displayName.trim();
@@ -62,14 +47,7 @@ export function AdminLockScreen({
 
     if (cleanUser.length < 3 || /\s/.test(cleanUser)) {
       nextErrors.username = 'Username minimal 3 karakter tanpa spasi, contoh: admin.';
-    } else if (
-      validPasswordAccounts.some(
-        (acc) => acc.username.trim().toLowerCase() === cleanUser.toLowerCase()
-      )
-    ) {
-      nextErrors.username = 'Username tersebut sudah digunakan. Pilih username lain.';
     }
-
     if (password.length < 6) {
       nextErrors.password = 'Kata sandi minimal 6 karakter, contoh kombinasi huruf dan angka.';
     }
@@ -98,7 +76,6 @@ export function AdminLockScreen({
         is_active: true,
       });
       onCreateAdminAccount(adminAccount);
-      onLoginSuccess(adminAccount);
     } catch {
       setErrorMsg('Gagal menyimpan akun admin di browser ini.');
     } finally {
@@ -156,47 +133,15 @@ export function AdminLockScreen({
           <div>
             <p className="text-sm font-semibold text-amber-800">{CLINIC_NAME}</p>
             <h1 className="mt-0.5 text-2xl font-semibold text-neutral-900">
-              {!hasAnyAccount
-                ? 'Atur Akun Admin Utama'
-                : isRegisterMode
-                  ? 'Daftar Akun Admin Baru'
-                  : 'Masuk Aplikasi Klinik'}
+              {isInitialSetup ? 'Atur Akun Admin Utama' : 'Masuk Aplikasi Klinik'}
             </h1>
             <p className="mt-1 text-sm text-neutral-600">
-              {isRegisterMode
-                ? 'Setiap akun Admin memiliki penyimpanan database jadwal terpisah.'
+              {isInitialSetup
+                ? 'Buat akun Admin pertama untuk mengaktifkan database aplikasi.'
                 : 'Masukkan username dan kata sandi akun Admin atau Terapis.'}
             </p>
           </div>
         </div>
-
-        {hasAnyAccount && (
-          <div className="mt-5 grid grid-cols-2 gap-1 rounded-xl bg-neutral-100 p-1">
-            <button
-              type="button"
-              onClick={() => switchMode('login')}
-              className={`min-h-[38px] rounded-lg px-3 py-1.5 text-sm font-medium transition-colors ${
-                !isRegisterMode
-                  ? 'bg-white text-neutral-900 shadow-xs'
-                  : 'text-neutral-600 hover:text-neutral-900'
-              }`}
-            >
-              Masuk Akun
-            </button>
-            <button
-              type="button"
-              onClick={() => switchMode('register')}
-              className={`inline-flex min-h-[38px] items-center justify-center gap-1.5 rounded-lg px-3 py-1.5 text-sm font-medium transition-colors ${
-                isRegisterMode
-                  ? 'bg-white text-neutral-900 shadow-xs'
-                  : 'text-neutral-600 hover:text-neutral-900'
-              }`}
-            >
-              <UserPlus className="h-3.5 w-3.5" />
-              <span>Akun Baru</span>
-            </button>
-          </div>
-        )}
 
         {errorMsg && (
           <div
@@ -208,11 +153,11 @@ export function AdminLockScreen({
         )}
 
         <form
-          onSubmit={isRegisterMode ? handleRegisterSubmit : handleLoginSubmit}
+          onSubmit={isInitialSetup ? handleInitialSetupSubmit : handleLoginSubmit}
           noValidate
           className="mt-5 space-y-4"
         >
-          {isRegisterMode && (
+          {isInitialSetup && (
             <div>
               <label
                 htmlFor="admin-display-name"
@@ -221,13 +166,12 @@ export function AdminLockScreen({
                 Nama Tampilan Admin
               </label>
               <input
-                ref={displayNameRef}
                 id="admin-display-name"
                 name="displayName"
                 type="text"
                 value={displayName}
                 onChange={(e) => setDisplayName(e.target.value)}
-                placeholder="Contoh: Admin Cabang Utama"
+                placeholder="Contoh: Admin Klinik"
                 className="mt-1.5 min-h-[44px] w-full rounded-xl border border-neutral-200 bg-white px-3.5 py-2 text-base text-neutral-900 placeholder:text-neutral-500 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-amber-700"
               />
             </div>
@@ -255,7 +199,7 @@ export function AdminLockScreen({
 
           <div>
             <label htmlFor="admin-password" className="block text-sm font-medium text-neutral-800">
-              {isRegisterMode ? 'Kata Sandi Baru' : 'Kata Sandi'}{' '}
+              {isInitialSetup ? 'Kata Sandi Baru' : 'Kata Sandi'}{' '}
               <span className="text-red-700">*</span>
             </label>
             <div className="relative mt-1.5">
@@ -264,10 +208,10 @@ export function AdminLockScreen({
                 id="admin-password"
                 name="password"
                 type={showPassword ? 'text' : 'password'}
-                autoComplete={isRegisterMode ? 'new-password' : 'current-password'}
+                autoComplete={isInitialSetup ? 'new-password' : 'current-password'}
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
-                placeholder={isRegisterMode ? 'Minimal 6 karakter' : 'Masukkan kata sandi'}
+                placeholder={isInitialSetup ? 'Minimal 6 karakter' : 'Masukkan kata sandi'}
                 className="min-h-[44px] w-full rounded-xl border border-neutral-200 bg-white py-2 pl-3.5 pr-12 text-base text-neutral-900 placeholder:text-neutral-500 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-amber-700"
               />
               <button
@@ -284,7 +228,7 @@ export function AdminLockScreen({
             )}
           </div>
 
-          {isRegisterMode && (
+          {isInitialSetup && (
             <div>
               <label
                 htmlFor="admin-password-confirm"
@@ -316,14 +260,17 @@ export function AdminLockScreen({
           >
             {isProcessing
               ? 'Memproses…'
-              : isRegisterMode
-                ? 'Buat Akun & Masuk'
+              : isInitialSetup
+                ? 'Simpan & Masuk'
                 : 'Masuk'}
           </button>
         </form>
 
-        {hasAnyAccount ? (
-          <div className="mt-5 border-t border-neutral-200 pt-4">
+        {!isInitialSetup ? (
+          <div className="mt-5 space-y-2 border-t border-neutral-200 pt-4">
+            <p className="text-xs text-neutral-600">
+              Pembuatan akun baru hanya tersedia melalui menu Manajemen Akun oleh Admin.
+            </p>
             <button
               type="button"
               onClick={onRequestResetLock}

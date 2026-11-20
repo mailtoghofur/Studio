@@ -1,30 +1,22 @@
-// Manajemen profil, penambahan terapis baru, status aktif, dan akses akun username/password terapis (FT-06).
+// Manajemen profil, penambahan terapis baru, dan status aktif terapis; pembuatan akun login diarahkan ke Manajemen Akun (FT-06).
 
 import { CheckCircle2, KeyRound, Plus, UserCheck, UserX, X } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
-import { createUserAccount } from '../lib/adminLock';
 import type { Therapist, UserAccount } from '../lib/types';
 
 interface TherapistsViewProps {
   therapists: Therapist[];
   accounts: UserAccount[];
-  allAccounts: UserAccount[];
-  ownerAccountId: string;
   onRequestSaveTherapists: (nextTherapists: Therapist[]) => void;
-  onAddTherapistWithOptionalAccount: (
-    newTherapist: Therapist,
-    newAccount?: UserAccount
-  ) => void;
+  onAddTherapist: (newTherapist: Therapist) => void;
   onOpenAccountsTab: () => void;
 }
 
 export function TherapistsView({
   therapists,
   accounts,
-  allAccounts,
-  ownerAccountId,
   onRequestSaveTherapists,
-  onAddTherapistWithOptionalAccount,
+  onAddTherapist,
   onOpenAccountsTab,
 }: TherapistsViewProps) {
   const [drafts, setDrafts] = useState<Therapist[]>(therapists);
@@ -32,19 +24,9 @@ export function TherapistsView({
 
   const [addOpen, setAddOpen] = useState(false);
   const [newName, setNewName] = useState('');
-  const [createAccountAlso, setCreateAccountAlso] = useState(true);
-  const [newUsername, setNewUsername] = useState('');
-  const [newPassword, setNewPassword] = useState('');
-  const [addErrors, setAddErrors] = useState<{
-    name?: string;
-    username?: string;
-    password?: string;
-  }>({});
-  const [isAdding, setIsAdding] = useState(false);
+  const [addError, setAddError] = useState<string | null>(null);
 
   const newNameRef = useRef<HTMLInputElement>(null);
-  const newUserRef = useRef<HTMLInputElement>(null);
-  const newPassRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     setDrafts(therapists);
@@ -63,10 +45,7 @@ export function TherapistsView({
 
   const openAddModal = () => {
     setNewName('');
-    setCreateAccountAlso(true);
-    setNewUsername('');
-    setNewPassword('');
-    setAddErrors({});
+    setAddError(null);
     setAddOpen(true);
   };
 
@@ -82,65 +61,24 @@ export function TherapistsView({
     return `T-${String(maxNum + 1).padStart(2, '0')}`;
   };
 
-  const handleAddSubmit = async (e: React.FormEvent) => {
+  const handleAddSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     const cleanName = newName.trim();
-    const cleanUser = newUsername.trim();
-    const nextErrors: { name?: string; username?: string; password?: string } = {};
-
     if (!cleanName) {
-      nextErrors.name = 'Isi nama terapis baru, contoh: Maya Kusuma.';
-    }
-
-    if (createAccountAlso) {
-      if (cleanUser.length < 3 || /\s/.test(cleanUser)) {
-        nextErrors.username = 'Username minimal 3 karakter tanpa spasi, contoh: maya.terapis.';
-      } else if (
-        allAccounts.some((acc) => acc.username.trim().toLowerCase() === cleanUser.toLowerCase())
-      ) {
-        nextErrors.username = 'Username tersebut sudah dipakai akun lain. Pilih username berbeda.';
-      }
-
-      if (newPassword.length < 6) {
-        nextErrors.password = 'Kata sandi minimal 6 karakter.';
-      }
-    }
-
-    if (Object.keys(nextErrors).length > 0) {
-      setAddErrors(nextErrors);
-      if (nextErrors.name) newNameRef.current?.focus();
-      else if (nextErrors.username) newUserRef.current?.focus();
-      else if (nextErrors.password) newPassRef.current?.focus();
+      setAddError('Isi nama terapis baru, contoh: Maya Kusuma.');
+      newNameRef.current?.focus();
       return;
     }
 
-    setIsAdding(true);
-    try {
-      const therapistId = generateNextTherapistId();
-      const newTherapist: Therapist = {
-        therapist_id: therapistId,
-        name: cleanName,
-        is_active: true,
-      };
+    const therapistId = generateNextTherapistId();
+    const newTherapist: Therapist = {
+      therapist_id: therapistId,
+      name: cleanName,
+      is_active: true,
+    };
 
-      let newAccount: UserAccount | undefined;
-      if (createAccountAlso) {
-        newAccount = await createUserAccount({
-          username: cleanUser,
-          display_name: cleanName,
-          password: newPassword,
-          role: 'THERAPIST',
-          therapist_id: therapistId,
-          owner_account_id: ownerAccountId,
-          is_active: true,
-        });
-      }
-
-      setAddOpen(false);
-      onAddTherapistWithOptionalAccount(newTherapist, newAccount);
-    } finally {
-      setIsAdding(false);
-    }
+    setAddOpen(false);
+    onAddTherapist(newTherapist);
   };
 
   return (
@@ -316,68 +254,13 @@ export function TherapistsView({
                   placeholder="Contoh: Maya Kusuma"
                   className="mt-1.5 min-h-[44px] w-full rounded-xl border border-neutral-200 bg-white px-3.5 py-2 text-base text-neutral-900 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-amber-700"
                 />
-                {addErrors.name && (
-                  <p className="mt-1.5 text-sm text-red-700">{addErrors.name}</p>
-                )}
+                {addError && <p className="mt-1.5 text-sm text-red-700">{addError}</p>}
               </div>
 
-              <label className="flex cursor-pointer items-center gap-2.5 rounded-xl border border-neutral-200 bg-neutral-50 p-3">
-                <input
-                  type="checkbox"
-                  checked={createAccountAlso}
-                  onChange={(e) => setCreateAccountAlso(e.target.checked)}
-                  className="h-4 w-4 accent-amber-700"
-                />
-                <span className="text-sm font-medium text-neutral-900">
-                  Sekaligus buatkan akun login terapis
-                </span>
-              </label>
-
-              {createAccountAlso && (
-                <div className="space-y-3 rounded-xl border border-neutral-200 bg-neutral-50 p-3.5">
-                  <div>
-                    <label
-                      htmlFor="new-therapist-username"
-                      className="block text-sm font-medium text-neutral-800"
-                    >
-                      Nama Pengguna (Username) <span className="text-red-700">*</span>
-                    </label>
-                    <input
-                      ref={newUserRef}
-                      id="new-therapist-username"
-                      type="text"
-                      value={newUsername}
-                      onChange={(e) => setNewUsername(e.target.value)}
-                      placeholder="Contoh: maya.terapis"
-                      className="mt-1.5 min-h-[44px] w-full rounded-xl border border-neutral-200 bg-white px-3.5 py-2 text-base text-neutral-900 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-amber-700"
-                    />
-                    {addErrors.username && (
-                      <p className="mt-1 text-sm text-red-700">{addErrors.username}</p>
-                    )}
-                  </div>
-
-                  <div>
-                    <label
-                      htmlFor="new-therapist-password"
-                      className="block text-sm font-medium text-neutral-800"
-                    >
-                      Kata Sandi Awal <span className="text-red-700">*</span>
-                    </label>
-                    <input
-                      ref={newPassRef}
-                      id="new-therapist-password"
-                      type="password"
-                      value={newPassword}
-                      onChange={(e) => setNewPassword(e.target.value)}
-                      placeholder="Minimal 6 karakter"
-                      className="mt-1.5 min-h-[44px] w-full rounded-xl border border-neutral-200 bg-white px-3.5 py-2 text-base text-neutral-900 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-amber-700"
-                    />
-                    {addErrors.password && (
-                      <p className="mt-1 text-sm text-red-700">{addErrors.password}</p>
-                    )}
-                  </div>
-                </div>
-              )}
+              <p className="rounded-xl border border-neutral-200 bg-neutral-50 px-3.5 py-2.5 text-xs text-neutral-600">
+                Untuk membuatkan akun login terapis ini, buka menu <strong>Manajemen Akun</strong>{' '}
+                di pojok kanan atas setelah menyimpan.
+              </p>
 
               <div className="flex justify-end gap-3 border-t border-neutral-200 pt-4">
                 <button
@@ -389,10 +272,9 @@ export function TherapistsView({
                 </button>
                 <button
                   type="submit"
-                  disabled={isAdding}
-                  className="min-h-[44px] rounded-xl bg-amber-700 px-4 py-2 text-sm font-medium text-white hover:bg-amber-800 disabled:opacity-60 whitespace-nowrap"
+                  className="min-h-[44px] rounded-xl bg-amber-700 px-4 py-2 text-sm font-medium text-white hover:bg-amber-800 whitespace-nowrap"
                 >
-                  {isAdding ? 'Menambahkan…' : 'Simpan Terapis'}
+                  Simpan Terapis
                 </button>
               </div>
             </form>
