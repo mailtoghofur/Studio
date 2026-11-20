@@ -1,0 +1,6 @@
+{
+  "name": "Penjadwalan Klinik Kesehatan",
+  "description": "Aplikasi admin penjadwalan layanan pijat dan facial untuk 3 terapis dengan penyimpanan Google Sheets.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
