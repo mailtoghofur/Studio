@@ -1,16 +1,15 @@
-// Modul akun di pojok kanan atas dengan dropdown profil, manajemen akun (Admin), ubah sandi cloud, dan menu keluar.
+// Modul akun di pojok kanan atas dengan dropdown profil, manajemen akun (Admin), ubah sandi lokal, dan menu keluar.
 
 import { ChevronDown, KeyRound, Lock, LogOut, ShieldCheck, User, Users, X } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
-import { changeOwnCloudPassword } from '../lib/cloudClinic';
-import { formatFirebaseAuthError } from '../lib/firebaseErrors';
+import { updateAccountPassword } from '../lib/adminLock';
 import type { UserAccount } from '../lib/types';
 
 interface AccountMenuProps {
   currentAccount: UserAccount;
   displayLabel: string;
   onOpenAccountManagement: () => void;
-  onPasswordChanged: () => void;
+  onPasswordUpdated: (updatedAccount: UserAccount) => void;
   onSignOut: () => void;
 }
 
@@ -18,19 +17,17 @@ export function AccountMenu({
   currentAccount,
   displayLabel,
   onOpenAccountManagement,
-  onPasswordChanged,
+  onPasswordUpdated,
   onSignOut,
 }: AccountMenuProps) {
   const [menuOpen, setMenuOpen] = useState(false);
   const [pwModalOpen, setPwModalOpen] = useState(false);
-  const [currentPassword, setCurrentPassword] = useState('');
   const [newPassword, setNewPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
   const [pwError, setPwError] = useState<string | null>(null);
   const [isSaving, setIsSaving] = useState(false);
 
   const containerRef = useRef<HTMLDivElement>(null);
-  const currentPasswordRef = useRef<HTMLInputElement>(null);
   const newPasswordRef = useRef<HTMLInputElement>(null);
 
   const isAdmin = currentAccount.role === 'ADMIN';
@@ -68,21 +65,15 @@ export function AccountMenu({
 
   const openChangePassword = () => {
     setMenuOpen(false);
-    setCurrentPassword('');
     setNewPassword('');
     setConfirmPassword('');
     setPwError(null);
     setPwModalOpen(true);
-    setTimeout(() => currentPasswordRef.current?.focus(), 0);
+    setTimeout(() => newPasswordRef.current?.focus(), 0);
   };
 
   const handleSavePassword = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!currentPassword) {
-      setPwError('Masukkan kata sandi saat ini untuk verifikasi.');
-      currentPasswordRef.current?.focus();
-      return;
-    }
     if (newPassword.length < 6) {
       setPwError('Kata sandi baru minimal 6 karakter.');
       newPasswordRef.current?.focus();
@@ -96,11 +87,11 @@ export function AccountMenu({
     setIsSaving(true);
     setPwError(null);
     try {
-      await changeOwnCloudPassword(currentPassword, newPassword);
+      const updated = await updateAccountPassword(currentAccount, newPassword);
+      onPasswordUpdated(updated);
       setPwModalOpen(false);
-      onPasswordChanged();
-    } catch (err) {
-      setPwError(formatFirebaseAuthError(err));
+    } catch {
+      setPwError('Gagal menyimpan kata sandi baru.');
     } finally {
       setIsSaving(false);
     }
@@ -230,25 +221,6 @@ export function AccountMenu({
             )}
 
             <form onSubmit={handleSavePassword} noValidate className="mt-4 space-y-4">
-              <div>
-                <label
-                  htmlFor="self-current-password"
-                  className="block text-sm font-medium text-neutral-800"
-                >
-                  Kata Sandi Saat Ini
-                </label>
-                <input
-                  ref={currentPasswordRef}
-                  id="self-current-password"
-                  type="password"
-                  autoComplete="current-password"
-                  value={currentPassword}
-                  onChange={(e) => setCurrentPassword(e.target.value)}
-                  placeholder="Masukkan kata sandi saat ini"
-                  className="mt-1.5 min-h-[44px] w-full rounded-xl border border-neutral-200 bg-white px-3.5 py-2 text-base text-neutral-900 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-amber-700"
-                />
-              </div>
-
               <div>
                 <label
                   htmlFor="self-new-password"

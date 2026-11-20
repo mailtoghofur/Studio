@@ -1,4 +1,4 @@
-// Batas tangkap kesalahan aplikasi agar error Firestore atau runtime tampil rapi dengan tombol muat ulang.
+// Batas tangkap kesalahan antarmuka agar error tampil rapi dengan tombol muat ulang aplikasi.
 
 import { AlertCircle, RotateCcw } from 'lucide-react';
 import { Component, type ErrorInfo, type ReactNode } from 'react';
@@ -24,20 +24,6 @@ export class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundarySt
 
   render() {
     if (this.state.error) {
-      let friendlyMessage = this.state.error.message;
-      try {
-        const parsed = JSON.parse(this.state.error.message) as {
-          error?: string;
-          operationType?: string;
-          path?: string;
-        };
-        if (parsed && parsed.error) {
-          friendlyMessage = `Akses data cloud gagal (${parsed.operationType ?? 'operasi'}): ${parsed.error}`;
-        }
-      } catch {
-        // Gunakan pesan asli jika bukan JSON terstruktur
-      }
-
       return (
         <div className="flex min-h-screen items-center justify-center bg-neutral-50 px-4 py-8">
           <div className="w-full max-w-md rounded-2xl border border-neutral-200 bg-white p-6">
@@ -45,9 +31,9 @@ export class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundarySt
               <AlertCircle className="mt-0.5 h-6 w-6 shrink-0" />
               <div>
                 <h1 className="text-lg font-semibold text-neutral-900">
-                  Terjadi Gangguan Koneksi Data
+                  Terjadi Kesalahan Aplikasi
                 </h1>
-                <p className="mt-1 text-sm text-neutral-600">{friendlyMessage}</p>
+                <p className="mt-1 text-sm text-neutral-600">{this.state.error.message}</p>
               </div>
             </div>
             <button

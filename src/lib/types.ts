@@ -10,19 +10,18 @@ export type UserRole = 'ADMIN' | 'THERAPIST';
 
 export interface UserAccount {
   account_id: string;
-  uid: string;
   username: string;
   display_name: string;
   role: UserRole;
   therapist_id?: string;
-  /** ID workspace database Firestore yang diakses akun ini. */
-  workspace_id: string;
-  /** ID akun Admin pemilik database yang dipakai bersama dalam satu cabang/klinik. */
+  /** ID akun Admin pemilik database yang dipakai akun ini (kosong berarti memakai database sendiri). */
   owner_account_id?: string;
-  /** UID pembuat akun untuk akun yang memiliki database terpisah. */
-  created_by_uid?: string;
+  /** ID pemilik database pembuat akun untuk pelacakan akun cabang dengan database terpisah. */
   created_by_owner_id?: string;
+  /** Penanda satu akun Admin Master utama. */
   is_master: boolean;
+  salt: string;
+  hash: string;
   is_active: boolean;
   created_at: string;
   updated_at: string;
@@ -68,6 +67,13 @@ export interface AccountDatabase {
   services: Service[];
   bookings: Booking[];
   updated_at: string;
+}
+
+export interface MasterBundlePayload {
+  version: 1;
+  exported_at: string;
+  accounts: UserAccount[];
+  databases: Record<string, AccountDatabase>;
 }
 
 export interface TherapistAvailability {

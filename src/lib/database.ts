@@ -1,7 +1,15 @@
-// Sistem database sederhana di browser yang tersimpan terpisah sesuai akun pemilik (owner_account_id).
+// Sistem database sederhana di browser yang tersimpan terpisah sesuai akun pemilik (owner_account_id), termasuk paket ekspor/impor Master lintas browser.
 
 import { DB_KEY_PREFIX, DEFAULT_SERVICES, DEFAULT_THERAPISTS } from '../config';
-import type { AccountDatabase, Booking, Service, Therapist } from './types';
+import { ensureMasterAccountFlag, getWorkspaceOwnerId } from './adminLock';
+import type {
+  AccountDatabase,
+  Booking,
+  MasterBundlePayload,
+  Service,
+  Therapist,
+  UserAccount,
+} from './types';
 
 export function getDatabaseStorageKey(ownerAccountId: string): string {
   return `${DB_KEY_PREFIX}${ownerAccountId}`;
@@ -150,16 +158,146 @@ export function parseAccountDatabaseJson(
   if (!parsed || typeof parsed !== 'object') {
     throw new Error('Format file database tidak valid.');
   }
-  if (!Array.isArray(parsed.therapists) || !Array.isArray(parsed.services) || !Array.isArray(parsed.bookings)) {
+  if (
+    !Array.isArray(parsed.therapists) ||
+    !Array.isArray(parsed.services) ||
+    !Array.isArray(parsed.bookings)
+  ) {
     throw new Error('File JSON harus memuat daftar terapis, layanan, dan reservasi.');
   }
   return {
     database_id: `DB-${ownerAccountId}`,
     owner_account_id: ownerAccountId,
     owner_username: ownerUsername,
-    therapists: parsed.therapists.length > 0 ? parsed.therapists : DEFAULT_THERAPISTS.map((t) => ({ ...t })),
-    services: parsed.services.length > 0 ? parsed.services : DEFAULT_SERVICES.map((s) => ({ ...s })),
+    therapists:
+      parsed.therapists.length > 0
+        ? parsed.therapists
+        : DEFAULT_THERAPISTS.map((t) => ({ ...t })),
+    services:
+      parsed.services.length > 0
+        ? parsed.services
+        : DEFAULT_SERVICES.map((s) => ({ ...s })),
     bookings: parsed.bookings,
     updated_at: new Date().toISOString(),
   };
+}
+
+export function collectAllAccountDatabases(
+  accounts: UserAccount[]
+): Record<string, AccountDatabase> {
+  const databases: Record<string, AccountDatabase> = {};
+  const ownerMap = new Map<string, string>();
+
+  for (const acc of accounts) {
+    const ownerId = getWorkspaceOwnerId(acc);
+    if (!ownerMap.has(ownerId)) {
+      const ownerAccount = accounts.find((a) => a.account_id === ownerId);
+      ownerMap.set(ownerId, ownerAccount?.username ?? acc.username);
+    }
+  }
+
+  for (const [ownerId, ownerUsername] of ownerMap.entries()) {
+    databases[ownerId] = loadAccountDatabase(ownerId, ownerUsername);
+  }
+
+  return databases;
+}
+
+export function exportMasterBundleJson(accounts: UserAccount[]): void {
+  const databases = collectAllAccountDatabases(accounts);
+  const payload: MasterBundlePayload = {
+    version: 1,
+    exported_at: new Date().toISOString(),
+    accounts,
+    databases,
+  };
+  const content = JSON.stringify(payload, null, 2);
+  const blob = new Blob([content], { type: 'application/json;charset=utf-8;' });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement('a');
+  link.href = url;
+  link.download = 'paket-master-naomi.json';
+  document.body.appendChild(link);
+  link.click();
+  document.body.removeChild(link);
+  URL.revokeObjectURL(url);
+}
+
+export function parseMasterBundleJson(rawText: string): MasterBundlePayload {
+  const parsed = JSON.parse(rawText) as Partial<MasterBundlePayload>;
+  if (!parsed || typeof parsed !== 'object') {
+    throw new Error('Format file paket master tidak valid.');
+  }
+  if (!Array.isArray(parsed.accounts) || parsed.accounts.length === 0) {
+    throw new Error('File JSON tidak memuat daftar akun pengguna.');
+  }
+
+  const validAccounts = parsed.accounts.filter(
+    (acc): acc is UserAccount =>
+      Boolean(
+        acc &&
+          typeof acc.account_id === 'string' &&
+          typeof acc.username === 'string' &&
+          (acc.role === 'ADMIN' || acc.role === 'THERAPIST') &&
+          typeof acc.salt === 'string' &&
+          typeof acc.hash === 'string'
+      )
+  );
+
+  if (validAccounts.length === 0 || !validAccounts.some((a) => a.role === 'ADMIN')) {
+    throw new Error('File paket master harus memuat minimal satu akun Admin yang valid.');
+  }
+
+  const normalizedAccounts = ensureMasterAccountFlag(validAccounts);
+  const rawDbs =
+    parsed.databases && typeof parsed.databases === 'object' ? parsed.databases : {};
+  const databases: Record<string, AccountDatabase> = {};
+
+  for (const acc of normalizedAccounts) {
+    const ownerId = getWorkspaceOwnerId(acc);
+    if (databases[ownerId]) continue;
+    const ownerAcc = normalizedAccounts.find((a) => a.account_id === ownerId);
+    const ownerUsername = ownerAcc?.username ?? acc.username;
+    const candidate = rawDbs[ownerId];
+    if (
+      candidate &&
+      Array.isArray(candidate.therapists) &&
+      Array.isArray(candidate.services) &&
+      Array.isArray(candidate.bookings)
+    ) {
+      databases[ownerId] = {
+        database_id: candidate.database_id || `DB-${ownerId}`,
+        owner_account_id: ownerId,
+        owner_username: candidate.owner_username || ownerUsername,
+        therapists:
+          candidate.therapists.length > 0
+            ? candidate.therapists
+            : DEFAULT_THERAPISTS.map((t) => ({ ...t })),
+        services:
+          candidate.services.length > 0
+            ? candidate.services
+            : DEFAULT_SERVICES.map((s) => ({ ...s })),
+        bookings: candidate.bookings,
+        updated_at: candidate.updated_at || new Date().toISOString(),
+      };
+    } else {
+      databases[ownerId] = createFreshDatabase(ownerId, ownerUsername);
+    }
+  }
+
+  return {
+    version: 1,
+    exported_at:
+      typeof parsed.exported_at === 'string' ? parsed.exported_at : new Date().toISOString(),
+    accounts: normalizedAccounts,
+    databases,
+  };
+}
+
+export function restoreMasterBundle(bundle: MasterBundlePayload): UserAccount[] {
+  clearAllAccountDatabases();
+  for (const db of Object.values(bundle.databases)) {
+    saveAccountDatabase(db);
+  }
+  return ensureMasterAccountFlag(bundle.accounts);
 }

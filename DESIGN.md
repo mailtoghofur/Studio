@@ -8,7 +8,7 @@ Dokumen ini mencatat seluruh keputusan desain yang telah disetujui pengguna.
 - **Warna Aksen**: Emas matang (*Gold* / `amber-700` `#B45309` untuk tombol utama dan teks aksen dengan kontras >= 4,5:1; `amber-50` untuk penanda terpilih).
 - **Sapaan**: Anda.
 - **Susunan Halaman**: Satu halaman dasbor dengan navigasi tab ringkas (Jadwal Harian, Layanan, Terapis, Pendapatan, Database), tombol aksi utama **Buat Reservasi**, serta modul akun dropdown di pojok kanan atas.
-- **Penyimpanan**: Database cloud Firestore multi-browser terpisah per ruang kerja akun, dilengkapi ekspor/impor cadangan JSON dan ekspor tabel CSV.
+- **Penyimpanan**: Database lokal browser (`localStorage`) sederhana yang tersimpan terpisah per ruang kerja akun, dilengkapi ekspor/impor cadangan JSON, Paket Master (`.json`) lintas browser, dan ekspor tabel CSV.
 
 ## Token Visual
 - **Latar Halaman**: `bg-neutral-50` (`#FAFAFA`)
@@ -16,4 +16,4 @@ Dokumen ini mencatat seluruh keputusan desain yang telah disetujui pengguna.
 - **Teks Utama**: `text-neutral-900` (`#171717`)
 - **Teks Pendukung**: `text-neutral-600` (`#525252`)
 - **Aksen Utama**: `bg-amber-700 hover:bg-amber-800 text-white`, cincin fokus `focus-visible:outline-amber-700`
-- **Angka & Jam**: Menggunakan `tabular-nums` dan pemisah titik (`10.00–21.00`) serta format Rupiah tanpa spasi/desimal (`Rp150.000`).
+- **Angka & Jam**: Menggunakan `tabular-nums` dan pemisah titik (`10.00-21.00`) serta format Rupiah tanpa spasi/desimal (`Rp150.000`).

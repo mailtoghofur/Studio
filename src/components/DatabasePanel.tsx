@@ -1,14 +1,21 @@
-// Panel pengelolaan database terpisah milik akun aktif (cadangan JSON, pulihkan data, ekspor CSV, dan reset).
+// Panel pengelolaan database terpisah milik akun aktif serta Paket Master (.json) untuk pindah browser tanpa Firebase.
 
-import { Database, Download, RotateCcw, Upload } from 'lucide-react';
+import { Database, Download, Package, RotateCcw, Upload } from 'lucide-react';
 import { useRef, useState } from 'react';
 import { exportBookingsCsv, exportServicesCsv, exportTherapistsCsv } from '../lib/csvExport';
-import { exportAccountDatabaseJson, parseAccountDatabaseJson } from '../lib/database';
-import type { AccountDatabase } from '../lib/types';
+import {
+  exportAccountDatabaseJson,
+  exportMasterBundleJson,
+  parseAccountDatabaseJson,
+  parseMasterBundleJson,
+} from '../lib/database';
+import type { AccountDatabase, MasterBundlePayload, UserAccount } from '../lib/types';
 
 interface DatabasePanelProps {
   database: AccountDatabase;
+  allAccounts: UserAccount[];
   onRequestImportDatabase: (importedDb: AccountDatabase) => void;
+  onRequestImportMasterBundle: (bundle: MasterBundlePayload) => void;
   onRequestResetDatabase: () => void;
 }
 
@@ -30,11 +37,15 @@ function formatUpdatedAt(iso: string): string {
 
 export function DatabasePanel({
   database,
+  allAccounts,
   onRequestImportDatabase,
+  onRequestImportMasterBundle,
   onRequestResetDatabase,
 }: DatabasePanelProps) {
   const [importError, setImportError] = useState<string | null>(null);
+  const [bundleError, setBundleError] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const bundleInputRef = useRef<HTMLInputElement>(null);
 
   const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -59,6 +70,25 @@ export function DatabasePanel({
     }
   };
 
+  const handleBundleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    e.target.value = '';
+    if (!file) return;
+
+    setBundleError(null);
+    try {
+      const text = await file.text();
+      const bundle = parseMasterBundleJson(text);
+      onRequestImportMasterBundle(bundle);
+    } catch (err) {
+      setBundleError(
+        err instanceof Error
+          ? err.message
+          : 'Gagal membaca file Paket Master. Pastikan format file valid.'
+      );
+    }
+  };
+
   return (
     <div className="mx-auto max-w-3xl space-y-6">
       {/* Info Database Terpisah Akun Aktif */}
@@ -70,10 +100,10 @@ export function DatabasePanel({
             </div>
             <div>
               <h1 className="text-xl font-semibold text-neutral-900 md:text-2xl">
-                Database Cloud ({database.owner_username})
+                Database Akun ({database.owner_username})
               </h1>
               <p className="mt-1 text-sm text-neutral-600">
-                Data terapis, layanan, dan reservasi tersinkron otomatis di cloud untuk ruang kerja akun ini.
+                Data terapis, layanan, dan reservasi disimpan terpisah di browser khusus untuk ruang kerja akun ini.
               </p>
             </div>
           </div>
@@ -154,6 +184,59 @@ export function DatabasePanel({
           >
             <RotateCcw className="h-4 w-4" />
             <span>Reset Database Akun</span>
+          </button>
+        </div>
+      </section>
+
+      {/* Paket Master Lintas Browser */}
+      <section className="rounded-2xl border border-neutral-200 bg-white p-6">
+        <div className="flex items-start gap-3">
+          <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-neutral-100 text-neutral-700">
+            <Package className="h-5 w-5" />
+          </div>
+          <div>
+            <h2 className="text-lg font-semibold text-neutral-900">
+              Paket Master Multi-Browser (.json)
+            </h2>
+            <p className="mt-1 text-sm text-neutral-600">
+              Salin akun Master beserta seluruh akun dan database di dalamnya ke browser atau perangkat lain tanpa server.
+            </p>
+          </div>
+        </div>
+
+        {bundleError && (
+          <div
+            role="alert"
+            className="mt-4 rounded-xl border border-red-200 bg-red-50 p-3 text-sm text-red-800"
+          >
+            {bundleError}
+          </div>
+        )}
+
+        <div className="mt-4 flex flex-wrap gap-3">
+          <button
+            type="button"
+            onClick={() => exportMasterBundleJson(allAccounts)}
+            className="inline-flex min-h-[44px] items-center gap-2 rounded-xl border border-neutral-200 bg-white px-4 py-2 text-sm font-medium text-neutral-800 hover:bg-neutral-50 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-amber-700 whitespace-nowrap"
+          >
+            <Download className="h-4 w-4 text-amber-700" />
+            <span>Unduh Paket Master ({allAccounts.length} Akun)</span>
+          </button>
+
+          <input
+            ref={bundleInputRef}
+            type="file"
+            accept="application/json,.json"
+            onChange={(e) => void handleBundleFileChange(e)}
+            className="hidden"
+          />
+          <button
+            type="button"
+            onClick={() => bundleInputRef.current?.click()}
+            className="inline-flex min-h-[44px] items-center gap-2 rounded-xl border border-neutral-200 bg-white px-4 py-2 text-sm font-medium text-neutral-800 hover:bg-neutral-50 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-amber-700 whitespace-nowrap"
+          >
+            <Upload className="h-4 w-4" />
+            <span>Impor Paket Master (.json)</span>
           </button>
         </div>
       </section>

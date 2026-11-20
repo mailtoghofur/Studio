@@ -1,11 +1,11 @@
-# Daftar Fitur Produk — Aplikasi Penjadwalan Klinik Kesehatan (Pijat & Facial)
+# Daftar Fitur Produk - Aplikasi Penjadwalan Klinik Kesehatan (Pijat & Facial)
 
 Dokumen ini merangkum fitur dari PRD v1.0 beserta keputusan hasil klarifikasi pengguna.
 
 ## Keputusan Teknis & Produk
-- **Penyimpanan Data**: Menggunakan database cloud Firestore (`workspaces/<workspaceId>`) yang tersinkron otomatis lintas browser dan perangkat serta mendukung ruang kerja terpisah sesuai akun Admin pemilik, dilengkapi cadangan/pulihkan JSON dan ekspor CSV (Reservasi, Layanan, Terapis, Pendapatan).
-- **Keamanan Akses**: Login menggunakan username dan kata sandi melalui Firebase Authentication (Email/Password dengan format internal `@naomi.klinik`, tidak tersambung ke akun Google). Tersedia satu akun **Admin Master** yang dapat diakses dari berbagai browser, serta pembuatan akun Terapis atau Admin tambahan hanya melalui menu **Manajemen Akun**.
-- **Operasional**: 7 hari seminggu (Senin–Minggu), pukul 10.00–21.00, jeda antarsesi 0 menit, kapasitas mengikuti jumlah terapis aktif.
+- **Penyimpanan Data**: Menggunakan penyimpanan lokal browser (`localStorage`) dengan database sederhana yang tersimpan terpisah sesuai akun pemilik (`klinik_db_<owner_account_id>`), dilengkapi cadangan/pulihkan JSON, Paket Master (`.json`) untuk pindah browser, dan ekspor CSV (Reservasi, Layanan, Terapis, Pendapatan).
+- **Keamanan Akses**: Login menggunakan username dan kata sandi dengan hash SHA-256 ber-salt di browser (tidak tersambung ke akun Google maupun Firebase). Tersedia satu akun **Admin Master** tunggal serta pembuatan akun Terapis atau Admin tambahan hanya melalui menu **Manajemen Akun**.
+- **Operasional**: 7 hari seminggu (Senin sampai Minggu), pukul 10.00 sampai 21.00, jeda antarsesi 0 menit, kapasitas mengikuti jumlah terapis aktif.
 
 ## Daftar Fitur
 

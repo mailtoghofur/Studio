@@ -1,32 +1,27 @@
-// Manajemen akun Admin Master, Admin tambahan, dan Terapis yang tersimpan di cloud multi-browser (FT-07).
+// Manajemen akun Admin Master, Admin tambahan, dan Terapis yang tersimpan sederhana di browser (FT-07).
 
-import { Plus, ShieldCheck, Trash2, UserCheck, UserX, X } from 'lucide-react';
+import { KeyRound, Plus, ShieldCheck, Trash2, UserCheck, UserX, X } from 'lucide-react';
 import { useMemo, useRef, useState } from 'react';
-import { createCloudAccount } from '../lib/cloudClinic';
-import { formatFirebaseAuthError } from '../lib/firebaseErrors';
+import { createUserAccount, getWorkspaceOwnerId, updateAccountPassword } from '../lib/adminLock';
 import type { Therapist, UserAccount, UserRole } from '../lib/types';
 
 interface AccountsViewProps {
   accounts: UserAccount[];
+  allAccounts: UserAccount[];
   therapists: Therapist[];
   currentAccount: UserAccount;
-  workspaceId: string;
-  workspaceOwnerUid: string;
-  workspaceAdminUids: string[];
-  onAccountCreated: (account: UserAccount) => void;
-  onToggleActive: (account: UserAccount, nextActive: boolean) => Promise<void>;
+  onCreateAccount: (account: UserAccount) => void;
+  onUpdateAccount: (account: UserAccount) => void;
   onRequestDeleteAccount: (account: UserAccount) => void;
 }
 
 export function AccountsView({
   accounts,
+  allAccounts,
   therapists,
   currentAccount,
-  workspaceId,
-  workspaceOwnerUid,
-  workspaceAdminUids,
-  onAccountCreated,
-  onToggleActive,
+  onCreateAccount,
+  onUpdateAccount,
   onRequestDeleteAccount,
 }: AccountsViewProps) {
   const therapistMap = useMemo(
@@ -34,15 +29,16 @@ export function AccountsView({
     [therapists]
   );
 
+  const currentOwnerId = getWorkspaceOwnerId(currentAccount);
+
   const [createOpen, setCreateOpen] = useState(false);
   const [role, setRole] = useState<UserRole>('THERAPIST');
-  const [adminDbMode, setAdminDbMode] = useState<'separate' | 'shared'>('shared');
+  const [adminDbMode, setAdminDbMode] = useState<'shared' | 'separate'>('shared');
   const [therapistId, setTherapistId] = useState(therapists[0]?.therapist_id ?? '');
   const [displayName, setDisplayName] = useState('');
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
-  const [submitError, setSubmitError] = useState<string | null>(null);
   const [formErrors, setFormErrors] = useState<{
     username?: string;
     displayName?: string;
@@ -52,13 +48,21 @@ export function AccountsView({
   }>({});
   const [isSaving, setIsSaving] = useState(false);
 
+  const [resetTarget, setResetTarget] = useState<UserAccount | null>(null);
+  const [resetPassword, setResetPassword] = useState('');
+  const [resetConfirm, setResetConfirm] = useState('');
+  const [resetError, setResetError] = useState<string | null>(null);
+
   const usernameRef = useRef<HTMLInputElement>(null);
   const displayNameRef = useRef<HTMLInputElement>(null);
   const passwordRef = useRef<HTMLInputElement>(null);
   const confirmRef = useRef<HTMLInputElement>(null);
 
   const activeWorkspaceAdminCount = accounts.filter(
-    (a) => a.workspace_id === workspaceId && a.role === 'ADMIN' && a.is_active
+    (a) =>
+      getWorkspaceOwnerId(a) === currentOwnerId &&
+      a.role === 'ADMIN' &&
+      a.is_active
   ).length;
 
   const openCreateModal = () => {
@@ -66,7 +70,7 @@ export function AccountsView({
       (t) =>
         !accounts.some(
           (a) =>
-            a.workspace_id === workspaceId &&
+            getWorkspaceOwnerId(a) === currentOwnerId &&
             a.role === 'THERAPIST' &&
             a.therapist_id === t.therapist_id
         )
@@ -79,7 +83,6 @@ export function AccountsView({
     setUsername('');
     setPassword('');
     setConfirmPassword('');
-    setSubmitError(null);
     setFormErrors({});
     setCreateOpen(true);
   };
@@ -97,13 +100,13 @@ export function AccountsView({
       errs.username =
         'Username minimal 3 karakter (huruf, angka, titik, garis bawah), contoh: sari.terapis.';
     } else if (
-      accounts.some((a) => a.username.trim().toLowerCase() === cleanUser.toLowerCase())
+      allAccounts.some((a) => a.username.trim().toLowerCase() === cleanUser.toLowerCase())
     ) {
       errs.username = 'Username sudah terdaftar. Gunakan username lain.';
     }
 
     if (role === 'ADMIN' && !cleanDisplay) {
-      errs.displayName = 'Isi nama tampilan admin, contoh: Admin Resepsionis.';
+      errs.displayName = 'Isi nama tampilan admin, contoh: Admin Shift Sore.';
     }
     if (role === 'THERAPIST' && !therapistId) {
       errs.therapistId = 'Pilih terapis yang akan dihubungkan ke akun ini.';
@@ -125,24 +128,45 @@ export function AccountsView({
     }
 
     setIsSaving(true);
-    setSubmitError(null);
     try {
-      const created = await createCloudAccount({
-        creatorUid: currentAccount.uid,
-        workspaceId,
-        workspaceOwnerUid,
-        workspaceAdminUids,
+      const useSharedDb = role === 'THERAPIST' || adminDbMode === 'shared';
+      const created = await createUserAccount({
         username: cleanUser,
         display_name: cleanDisplay || cleanUser,
         password,
         role,
         therapist_id: role === 'THERAPIST' ? therapistId : undefined,
-        databaseMode: role === 'ADMIN' ? adminDbMode : 'shared',
+        owner_account_id: useSharedDb ? currentOwnerId : undefined,
+        created_by_owner_id: currentOwnerId,
+        is_master: false,
       });
+      onCreateAccount(created);
       setCreateOpen(false);
-      onAccountCreated(created);
-    } catch (err) {
-      setSubmitError(formatFirebaseAuthError(err));
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
+  const handleResetPasswordSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!resetTarget) return;
+    if (resetPassword.length < 6) {
+      setResetError('Kata sandi baru minimal 6 karakter.');
+      return;
+    }
+    if (resetConfirm !== resetPassword) {
+      setResetError('Konfirmasi kata sandi tidak cocok.');
+      return;
+    }
+
+    setIsSaving(true);
+    try {
+      const updated = await updateAccountPassword(resetTarget, resetPassword);
+      onUpdateAccount(updated);
+      setResetTarget(null);
+      setResetPassword('');
+      setResetConfirm('');
+      setResetError(null);
     } finally {
       setIsSaving(false);
     }
@@ -155,8 +179,8 @@ export function AccountsView({
           <h1 className="text-xl font-semibold text-neutral-900 md:text-2xl">
             Manajemen Akun Admin & Terapis
           </h1>
-          <p className="mt-1 text-sm text-neutral-600">
-            Seluruh akun di sini tersimpan di cloud dan dapat masuk dari berbagai browser ({accounts.length} akun).
+          <p className="mt-1 text-sm text-neutral-600 tabular-nums">
+            {accounts.length} akun terdaftar tersimpan lokal di browser sesuai database masing-masing.
           </p>
         </div>
 
@@ -171,7 +195,7 @@ export function AccountsView({
       </div>
 
       <div className="mt-6 overflow-x-auto rounded-xl border border-neutral-200">
-        <table className="w-full min-w-[660px] border-collapse text-left text-sm">
+        <table className="w-full min-w-[680px] border-collapse text-left text-sm">
           <thead>
             <tr className="border-b border-neutral-200 bg-neutral-50 text-neutral-700">
               <th className="px-4 py-3 font-semibold">Nama & Akses Database</th>
@@ -186,17 +210,17 @@ export function AccountsView({
               const linkedTherapist = acc.therapist_id
                 ? therapistMap.get(acc.therapist_id)
                 : undefined;
-              const isSelf = acc.uid === currentAccount.uid;
-              const isSeparateDb = acc.workspace_id !== workspaceId;
+              const isSelf = acc.account_id === currentAccount.account_id;
+              const isSeparateDb = getWorkspaceOwnerId(acc) !== currentOwnerId;
+              const isProtectedMaster = acc.is_master;
               const isLastActiveAdmin =
                 !isSeparateDb &&
                 acc.role === 'ADMIN' &&
                 acc.is_active &&
                 activeWorkspaceAdminCount <= 1;
-              const isProtectedMaster = acc.is_master;
 
               return (
-                <tr key={acc.uid} className="hover:bg-neutral-50/70">
+                <tr key={acc.account_id} className="hover:bg-neutral-50/70">
                   <td className="px-4 py-3">
                     <p className="font-semibold text-neutral-900">
                       {linkedTherapist?.name ?? acc.display_name}
@@ -213,7 +237,7 @@ export function AccountsView({
                     ) : isSeparateDb ? (
                       <p className="text-xs text-amber-800">Database terpisah</p>
                     ) : acc.is_master ? (
-                      <p className="text-xs text-amber-800">Akun Master Multi-Browser</p>
+                      <p className="text-xs text-amber-800">Akun Admin Master</p>
                     ) : (
                       <p className="text-xs text-neutral-600">Berbagi database klinik ini</p>
                     )}
@@ -247,8 +271,28 @@ export function AccountsView({
                     <div className="flex justify-end gap-2">
                       <button
                         type="button"
+                        onClick={() => {
+                          setResetTarget(acc);
+                          setResetPassword('');
+                          setResetConfirm('');
+                          setResetError(null);
+                        }}
+                        className="inline-flex min-h-[36px] items-center gap-1.5 rounded-lg border border-neutral-200 bg-white px-3 py-1 text-sm font-medium text-neutral-800 hover:bg-neutral-50 whitespace-nowrap"
+                      >
+                        <KeyRound className="h-3.5 w-3.5" />
+                        <span>Ubah Sandi</span>
+                      </button>
+
+                      <button
+                        type="button"
                         disabled={isProtectedMaster || isLastActiveAdmin || isSelf}
-                        onClick={() => void onToggleActive(acc, !acc.is_active)}
+                        onClick={() =>
+                          onUpdateAccount({
+                            ...acc,
+                            is_active: !acc.is_active,
+                            updated_at: new Date().toISOString(),
+                          })
+                        }
                         title={
                           isProtectedMaster
                             ? 'Akun Admin Master tidak dapat dinonaktifkan'
@@ -301,15 +345,6 @@ export function AccountsView({
                 <X className="h-5 w-5" />
               </button>
             </div>
-
-            {submitError && (
-              <div
-                role="alert"
-                className="mt-4 rounded-xl border border-red-200 bg-red-50 p-3 text-sm text-red-800"
-              >
-                {submitError}
-              </div>
-            )}
 
             <form onSubmit={handleCreateSubmit} noValidate className="mt-5 space-y-4">
               <div>
@@ -502,6 +537,99 @@ export function AccountsView({
                   className="min-h-[44px] rounded-xl bg-amber-700 px-4 py-2 text-sm font-medium text-white hover:bg-amber-800 disabled:opacity-60 whitespace-nowrap"
                 >
                   {isSaving ? 'Menyimpan…' : 'Simpan Akun'}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* Modal Ubah Kata Sandi Akun */}
+      {resetTarget && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-neutral-900/40 p-4"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="reset-pw-title"
+        >
+          <div className="w-full max-w-md rounded-2xl border border-neutral-200 bg-white p-6 shadow-[0_1px_2px_rgba(0,0,0,0.06),0_8px_24px_rgba(0,0,0,0.08)]">
+            <div className="flex items-start justify-between gap-4 border-b border-neutral-200 pb-4">
+              <div>
+                <h2 id="reset-pw-title" className="text-lg font-semibold text-neutral-900">
+                  Ubah Kata Sandi Akun
+                </h2>
+                <p className="mt-0.5 text-sm text-neutral-600">
+                  Akun: <strong>{resetTarget.username}</strong>
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setResetTarget(null)}
+                aria-label="Tutup form ubah sandi"
+                className="flex h-10 w-10 items-center justify-center rounded-xl text-neutral-500 hover:bg-neutral-100 hover:text-neutral-900"
+              >
+                <X className="h-5 w-5" />
+              </button>
+            </div>
+
+            {resetError && (
+              <div
+                role="alert"
+                className="mt-4 rounded-xl border border-red-200 bg-red-50 p-3 text-sm text-red-800"
+              >
+                {resetError}
+              </div>
+            )}
+
+            <form onSubmit={handleResetPasswordSubmit} noValidate className="mt-4 space-y-4">
+              <div>
+                <label
+                  htmlFor="reset-password-input"
+                  className="block text-sm font-medium text-neutral-800"
+                >
+                  Kata Sandi Baru
+                </label>
+                <input
+                  id="reset-password-input"
+                  type="password"
+                  value={resetPassword}
+                  onChange={(e) => setResetPassword(e.target.value)}
+                  placeholder="Minimal 6 karakter"
+                  className="mt-1.5 min-h-[44px] w-full rounded-xl border border-neutral-200 bg-white px-3.5 py-2 text-base text-neutral-900 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-amber-700"
+                />
+              </div>
+
+              <div>
+                <label
+                  htmlFor="reset-password-confirm"
+                  className="block text-sm font-medium text-neutral-800"
+                >
+                  Ulangi Kata Sandi Baru
+                </label>
+                <input
+                  id="reset-password-confirm"
+                  type="password"
+                  value={resetConfirm}
+                  onChange={(e) => setResetConfirm(e.target.value)}
+                  placeholder="Ketik ulang kata sandi baru"
+                  className="mt-1.5 min-h-[44px] w-full rounded-xl border border-neutral-200 bg-white px-3.5 py-2 text-base text-neutral-900 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-amber-700"
+                />
+              </div>
+
+              <div className="flex justify-end gap-3 border-t border-neutral-200 pt-4">
+                <button
+                  type="button"
+                  onClick={() => setResetTarget(null)}
+                  className="min-h-[44px] rounded-xl border border-neutral-200 bg-white px-4 py-2 text-sm font-medium text-neutral-700 hover:bg-neutral-50 whitespace-nowrap"
+                >
+                  Batal
+                </button>
+                <button
+                  type="submit"
+                  disabled={isSaving}
+                  className="min-h-[44px] rounded-xl bg-amber-700 px-4 py-2 text-sm font-medium text-white hover:bg-amber-800 disabled:opacity-60 whitespace-nowrap"
+                >
+                  {isSaving ? 'Menyimpan…' : 'Simpan Sandi'}
                 </button>
               </div>
             </form>

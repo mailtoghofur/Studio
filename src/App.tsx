@@ -1,8 +1,6 @@
-// Komponen utama aplikasi penjadwalan Naomi Beauty & Wellness dengan akun Admin Master cloud multi-browser dan ruang kerja terpisah per akun.
+// Komponen utama aplikasi penjadwalan Naomi Beauty & Wellness dengan login lokal sederhana dan database terpisah per akun.
 
-import { onAuthStateChanged } from 'firebase/auth';
 import {
-  AlertCircle,
   BarChart3,
   Calendar,
   Database,
@@ -10,7 +8,7 @@ import {
   Scissors,
   Users,
 } from 'lucide-react';
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { AccountMenu } from './components/AccountMenu';
 import { AccountsView } from './components/AccountsView';
 import { AdminLockScreen } from './components/AdminLockScreen';
@@ -25,28 +23,18 @@ import { TherapistsView } from './components/TherapistsView';
 import {
   CLINIC_LOGO_SRC,
   CLINIC_NAME,
-  DB_KEY_PREFIX,
-  DEFAULT_SERVICES,
-  DEFAULT_THERAPISTS,
   STATUS_LABELS,
   STORAGE_KEY,
 } from './config';
+import { ensureMasterAccountFlag, getWorkspaceOwnerId } from './lib/adminLock';
 import {
-  checkSystemInitialized,
-  deleteCloudAccount,
-  fetchCurrentUserProfile,
-  importWorkspaceDatabaseToCloud,
-  logoutCloudSession,
-  resetWorkspaceDatabaseInCloud,
-  saveWorkspaceBooking,
-  saveWorkspaceServices,
-  saveWorkspaceTherapists,
-  subscribeWorkspace,
-  toggleCloudAccountActive,
-  updateWorkspaceBookingStatus,
-  type WorkspaceMetadata,
-} from './lib/cloudClinic';
-import { auth } from './lib/firebase';
+  clearAllAccountDatabases,
+  deleteAccountDatabase,
+  loadAccountDatabase,
+  resetAccountDatabase,
+  restoreMasterBundle,
+  saveAccountDatabase,
+} from './lib/database';
 import {
   formatDateIndo,
   formatTimeRange,
@@ -57,6 +45,7 @@ import type {
   Booking,
   BookingStatus,
   ConfirmDialogState,
+  MasterBundlePayload,
   Service,
   Therapist,
   UserAccount,
@@ -64,37 +53,38 @@ import type {
 
 type ActiveTab = 'calendar' | 'services' | 'therapists' | 'revenue' | 'accounts' | 'database';
 
-function readLegacyLocalData():
-  | {
-      therapists?: Therapist[];
-      services?: Service[];
-      bookings?: Booking[];
-    }
-  | undefined {
+interface StoredAccountsState {
+  accounts: UserAccount[];
+  legacySeed?: {
+    therapists?: Therapist[];
+    services?: Service[];
+    bookings?: Booking[];
+  };
+}
+
+function loadStoredAccountsState(): StoredAccountsState {
   try {
-    // Cek database lokal per akun jika ada dari sesi sebelumnya
-    for (let i = 0; i < localStorage.length; i++) {
-      const key = localStorage.key(i);
-      if (key && key.startsWith(DB_KEY_PREFIX)) {
-        const rawDb = localStorage.getItem(key);
-        if (!rawDb) continue;
-        const parsed = JSON.parse(rawDb) as Partial<AccountDatabase>;
-        if (parsed && Array.isArray(parsed.bookings) && parsed.bookings.length > 0) {
-          return {
-            therapists: Array.isArray(parsed.therapists) ? parsed.therapists : undefined,
-            services: Array.isArray(parsed.services) ? parsed.services : undefined,
-            bookings: parsed.bookings,
-          };
-        }
-      }
-    }
     const raw = localStorage.getItem(STORAGE_KEY);
-    if (!raw) return undefined;
+    if (!raw) return { accounts: [] };
     const parsed = JSON.parse(raw) as {
+      accounts?: UserAccount[];
       therapists?: Therapist[];
       services?: Service[];
       bookings?: Booking[];
     };
+    if (parsed && Array.isArray(parsed.accounts) && parsed.accounts.length > 0) {
+      const valid = parsed.accounts.filter(
+        (a): a is UserAccount =>
+          Boolean(
+            a &&
+              typeof a.account_id === 'string' &&
+              typeof a.username === 'string' &&
+              typeof a.salt === 'string' &&
+              typeof a.hash === 'string'
+          )
+      );
+      return { accounts: ensureMasterAccountFlag(valid) };
+    }
     if (
       parsed &&
       (Array.isArray(parsed.bookings) ||
@@ -102,38 +92,38 @@ function readLegacyLocalData():
         Array.isArray(parsed.services))
     ) {
       return {
-        therapists: Array.isArray(parsed.therapists) ? parsed.therapists : undefined,
-        services: Array.isArray(parsed.services) ? parsed.services : undefined,
-        bookings: Array.isArray(parsed.bookings) ? parsed.bookings : undefined,
+        accounts: [],
+        legacySeed: {
+          therapists: Array.isArray(parsed.therapists) ? parsed.therapists : undefined,
+          services: Array.isArray(parsed.services) ? parsed.services : undefined,
+          bookings: Array.isArray(parsed.bookings) ? parsed.bookings : undefined,
+        },
       };
     }
   } catch {
-    // Abaikan jika data lokal tidak terbaca
+    // Abaikan jika penyimpanan rusak
   }
-  return undefined;
+  return { accounts: [] };
+}
+
+function saveAccountsToStorage(accounts: UserAccount[]): void {
+  try {
+    localStorage.setItem(STORAGE_KEY, JSON.stringify({ accounts }));
+  } catch {
+    // Abaikan bila kuota browser penuh
+  }
 }
 
 export default function App() {
-  const [legacyLocalData] = useState(() => readLegacyLocalData());
-  const [isInitialized, setIsInitialized] = useState<boolean | null>(null);
-  const [initError, setInitError] = useState<string | null>(null);
+  const [initialState] = useState<StoredAccountsState>(() => loadStoredAccountsState());
+  const [accounts, setAccounts] = useState<UserAccount[]>(initialState.accounts);
+  const [legacySeed, setLegacySeed] = useState(initialState.legacySeed);
+  const [currentAccountId, setCurrentAccountId] = useState<string | null>(null);
+  const [accountDb, setAccountDb] = useState<AccountDatabase | null>(null);
 
   const [activeTab, setActiveTab] = useState<ActiveTab>('calendar');
   const [selectedDate, setSelectedDate] = useState<string>(getTodayYYYYMMDD);
   const [noticeMessage, setNoticeMessage] = useState<string | null>(null);
-  const [cloudError, setCloudError] = useState<string | null>(null);
-
-  const [currentAccount, setCurrentAccount] = useState<UserAccount | null>(null);
-  const currentAccountRef = useRef<UserAccount | null>(null);
-  currentAccountRef.current = currentAccount;
-
-  const [workspaceMeta, setWorkspaceMeta] = useState<WorkspaceMetadata | null>(null);
-  const [therapists, setTherapists] = useState<Therapist[]>(DEFAULT_THERAPISTS);
-  const [services, setServices] = useState<Service[]>(DEFAULT_SERVICES);
-  const [bookings, setBookings] = useState<Booking[]>([]);
-  const [workspaceMembers, setWorkspaceMembers] = useState<UserAccount[]>([]);
-  const [createdAccounts, setCreatedAccounts] = useState<UserAccount[]>([]);
-  const [lastUpdatedIso, setLastUpdatedIso] = useState<string>(() => new Date().toISOString());
 
   const [formOpen, setFormOpen] = useState(false);
   const [prefillSlot, setPrefillSlot] = useState<{
@@ -144,156 +134,100 @@ export default function App() {
   const [selectedBooking, setSelectedBooking] = useState<Booking | null>(null);
   const [confirmDialog, setConfirmDialog] = useState<ConfirmDialogState | null>(null);
 
-  const verifySystemBoot = useCallback(async () => {
-    setInitError(null);
-    setIsInitialized(null);
-    try {
-      const initialized = await checkSystemInitialized();
-      setIsInitialized(initialized);
-    } catch (err) {
-      setInitError(
-        err instanceof Error
-          ? err.message
-          : 'Gagal terhubung ke database cloud Firestore. Periksa koneksi Anda.'
-      );
+  useEffect(() => {
+    saveAccountsToStorage(accounts);
+  }, [accounts]);
+
+  const currentAccount = useMemo(
+    () => accounts.find((a) => a.account_id === currentAccountId) ?? null,
+    [accounts, currentAccountId]
+  );
+
+  const currentOwnerId = currentAccount ? getWorkspaceOwnerId(currentAccount) : null;
+
+  useEffect(() => {
+    if (!currentAccount || !currentOwnerId) {
+      setAccountDb(null);
+      return;
     }
-  }, []);
+    const ownerAcc = accounts.find((a) => a.account_id === currentOwnerId);
+    const db = loadAccountDatabase(
+      currentOwnerId,
+      ownerAcc?.username ?? currentAccount.username
+    );
+    setAccountDb(db);
+  }, [currentAccount, currentOwnerId, accounts]);
 
-  useEffect(() => {
-    void verifySystemBoot();
-  }, [verifySystemBoot]);
+  const workspaceAccounts = useMemo(() => {
+    if (!currentAccount || !currentOwnerId) return [];
+    if (currentAccount.is_master) return accounts;
+    return accounts.filter(
+      (a) =>
+        getWorkspaceOwnerId(a) === currentOwnerId ||
+        a.created_by_owner_id === currentOwnerId
+    );
+  }, [accounts, currentAccount, currentOwnerId]);
 
-  useEffect(() => {
-    const unsubscribe = onAuthStateChanged(auth, (firebaseUser) => {
-      if (!firebaseUser) {
-        setCurrentAccount(null);
-        setWorkspaceMeta(null);
-        setWorkspaceMembers([]);
-        setCreatedAccounts([]);
-        return;
-      }
+  const workspaceMembers = useMemo(() => {
+    if (!currentOwnerId) return [];
+    return accounts.filter((a) => getWorkspaceOwnerId(a) === currentOwnerId);
+  }, [accounts, currentOwnerId]);
 
-      if (currentAccountRef.current?.uid === firebaseUser.uid) {
-        return;
-      }
-
-      void (async () => {
-        try {
-          let profile = await fetchCurrentUserProfile(firebaseUser.uid);
-          if (!profile) {
-            await new Promise((r) => setTimeout(r, 700));
-            profile = await fetchCurrentUserProfile(firebaseUser.uid);
-          }
-          if (!profile) return;
-          if (!profile.is_active) {
-            await logoutCloudSession();
-            setCurrentAccount(null);
-            return;
-          }
-          setCurrentAccount(profile);
-          setIsInitialized(true);
-        } catch (err) {
-          setCloudError(err instanceof Error ? err.message : 'Gagal memuat profil akun.');
-        }
-      })();
+  const updateActiveDatabase = (updater: (prev: AccountDatabase) => AccountDatabase) => {
+    setAccountDb((prev) => {
+      if (!prev) return prev;
+      const next: AccountDatabase = {
+        ...updater(prev),
+        updated_at: new Date().toISOString(),
+      };
+      saveAccountDatabase(next);
+      return next;
     });
+  };
 
-    return () => unsubscribe();
-  }, []);
+  const handleMasterSetupSuccess = (masterAccount: UserAccount) => {
+    const db = loadAccountDatabase(
+      masterAccount.account_id,
+      masterAccount.username,
+      legacySeed
+    );
+    setLegacySeed(undefined);
+    setAccounts([masterAccount]);
+    setCurrentAccountId(masterAccount.account_id);
+    setAccountDb(db);
+    setActiveTab('calendar');
+    setNoticeMessage(
+      `Akun Admin Master "${masterAccount.username}" aktif dengan database lokal tersendiri.`
+    );
+  };
 
-  useEffect(() => {
-    if (!currentAccount) return;
+  const handleLoginSuccess = (account: UserAccount) => {
+    const ownerId = getWorkspaceOwnerId(account);
+    const ownerAcc = accounts.find((a) => a.account_id === ownerId);
+    const db = loadAccountDatabase(ownerId, ownerAcc?.username ?? account.username);
+    setCurrentAccountId(account.account_id);
+    setAccountDb(db);
+    setActiveTab('calendar');
+    setNoticeMessage(null);
+  };
 
-    const unsubscribe = subscribeWorkspace(currentAccount.workspace_id, currentAccount, {
-      onWorkspace: (ws) => {
-        setWorkspaceMeta(ws);
-        setLastUpdatedIso(new Date().toISOString());
-      },
-      onTherapists: (items) => {
-        setTherapists(items.length > 0 ? items : DEFAULT_THERAPISTS);
-        setLastUpdatedIso(new Date().toISOString());
-      },
-      onServices: (items) => {
-        setServices(items.length > 0 ? items : DEFAULT_SERVICES);
-        setLastUpdatedIso(new Date().toISOString());
-      },
-      onBookings: (items) => {
-        setBookings(items);
-        setLastUpdatedIso(new Date().toISOString());
-      },
-      onWorkspaceMembers: (members) => {
-        setWorkspaceMembers(members);
-      },
-      onCreatedAccounts: (created) => {
-        setCreatedAccounts(created);
-      },
-      onError: (err) => {
-        setCloudError(err.message);
-      },
-    });
-
-    return () => unsubscribe();
-  }, [currentAccount]);
-
-  const managedAccounts = useMemo(() => {
-    const map = new Map<string, UserAccount>();
-    for (const m of workspaceMembers) {
-      map.set(m.uid, m);
-    }
-    for (const c of createdAccounts) {
-      if (!map.has(c.uid)) {
-        map.set(c.uid, c);
-      }
-    }
-    if (currentAccount && !map.has(currentAccount.uid)) {
-      map.set(currentAccount.uid, currentAccount);
-    }
-    return Array.from(map.values());
-  }, [workspaceMembers, createdAccounts, currentAccount]);
-
-  const therapistUidByTherapistId = useMemo(() => {
-    const map = new Map<string, string>();
-    for (const acc of workspaceMembers) {
-      if (acc.role === 'THERAPIST' && acc.therapist_id && acc.is_active) {
-        map.set(acc.therapist_id, acc.uid);
-      }
-    }
-    return map;
-  }, [workspaceMembers]);
-
-  const workspaceOwnerUid =
-    workspaceMeta?.ownerUid ?? currentAccount?.uid ?? '';
-  const workspaceAdminUids = useMemo(() => {
-    if (workspaceMeta?.adminUids && workspaceMeta.adminUids.length > 0) {
-      return workspaceMeta.adminUids;
-    }
-    return currentAccount ? [currentAccount.uid] : [];
-  }, [workspaceMeta, currentAccount]);
-
-  const activeAccountDatabase: AccountDatabase | null = useMemo(() => {
-    if (!currentAccount) return null;
-    return {
-      database_id: currentAccount.workspace_id,
-      owner_account_id: workspaceOwnerUid,
-      owner_username: workspaceMeta?.ownerUsername ?? currentAccount.username,
-      therapists,
-      services,
-      bookings,
-      updated_at: lastUpdatedIso,
-    };
-  }, [currentAccount, workspaceOwnerUid, workspaceMeta, therapists, services, bookings, lastUpdatedIso]);
-
-  const handleSignOut = async () => {
-    await logoutCloudSession();
-    setCurrentAccount(null);
-    setWorkspaceMeta(null);
-    setWorkspaceMembers([]);
-    setCreatedAccounts([]);
+  const handleSignOut = () => {
+    setCurrentAccountId(null);
+    setAccountDb(null);
     setSelectedBooking(null);
     setEditingBooking(null);
     setFormOpen(false);
     setNoticeMessage(null);
-    setCloudError(null);
+  };
+
+  const handleResetAllLocalData = () => {
+    clearAllAccountDatabases();
+    localStorage.removeItem(STORAGE_KEY);
+    setAccounts([]);
+    setLegacySeed(undefined);
+    setCurrentAccountId(null);
+    setAccountDb(null);
+    setNoticeMessage(null);
   };
 
   const handleOpenCreateModal = (therapistId?: string, startTime?: string) => {
@@ -308,52 +242,44 @@ export default function App() {
     serviceName: string;
     therapistName: string;
   }) => {
-    if (!currentAccount) return;
     const { mode, booking } = payload;
-    const therapistUid = therapistUidByTherapistId.get(booking.therapist_id) ?? '';
-    setCloudError(null);
-    try {
-      await saveWorkspaceBooking({
-        mode,
-        workspaceId: currentAccount.workspace_id,
-        ownerUid: workspaceOwnerUid,
-        adminUids: workspaceAdminUids,
-        therapistUid,
-        booking,
-      });
-      if (mode === 'reschedule') {
-        setNoticeMessage(`Jadwal ${booking.patient_name} berhasil diperbarui.`);
-      } else {
-        setSelectedDate(booking.booking_date);
-        setNoticeMessage(`Reservasi ${booking.patient_name} berhasil disimpan.`);
-      }
-      setFormOpen(false);
-      setEditingBooking(null);
-    } catch (err) {
-      setCloudError(err instanceof Error ? err.message : 'Gagal menyimpan reservasi ke cloud.');
+    updateActiveDatabase((prev) => ({
+      ...prev,
+      bookings:
+        mode === 'reschedule'
+          ? prev.bookings.map((b) => (b.booking_id === booking.booking_id ? booking : b))
+          : [...prev.bookings, booking],
+    }));
+
+    if (mode === 'reschedule') {
+      setNoticeMessage(`Jadwal ${booking.patient_name} berhasil diperbarui.`);
+    } else {
+      setSelectedDate(booking.booking_date);
+      setNoticeMessage(`Reservasi ${booking.patient_name} berhasil disimpan.`);
     }
+    setFormOpen(false);
+    setEditingBooking(null);
   };
 
   const handleRequestStatusChange = (booking: Booking, nextStatus: BookingStatus) => {
-    if (!currentAccount) return;
     const isCancel = nextStatus === 'CANCELLED';
     const nextLabel = STATUS_LABELS[nextStatus];
 
     const applyStatus = async () => {
-      setCloudError(null);
-      await updateWorkspaceBookingStatus({
-        workspaceId: currentAccount.workspace_id,
-        bookingId: booking.booking_id,
-        status: nextStatus,
-      });
+      updateActiveDatabase((prev) => ({
+        ...prev,
+        bookings: prev.bookings.map((b) =>
+          b.booking_id === booking.booking_id
+            ? { ...b, status: nextStatus, updated_at: new Date().toISOString() }
+            : b
+        ),
+      }));
       setSelectedBooking(null);
       setNoticeMessage(`Status reservasi ${booking.patient_name} diubah menjadi ${nextLabel}.`);
     };
 
     if (!isCancel) {
-      void applyStatus().catch((err) => {
-        setCloudError(err instanceof Error ? err.message : 'Gagal mengubah status reservasi.');
-      });
+      void applyStatus();
       return;
     }
 
@@ -372,100 +298,89 @@ export default function App() {
     });
   };
 
-  const handleRequestSaveService = async (mode: 'create' | 'edit', service: Service) => {
-    if (!currentAccount) return;
+  const handleRequestSaveService = (mode: 'create' | 'edit', service: Service) => {
     const isEdit = mode === 'edit';
-    const nextServices = isEdit
-      ? services.map((s) => (s.service_id === service.service_id ? service : s))
-      : [...services, service];
-
-    setCloudError(null);
-    try {
-      await saveWorkspaceServices(currentAccount.workspace_id, nextServices);
-      setNoticeMessage(
-        isEdit
-          ? `Layanan "${service.service_name}" berhasil diperbarui.`
-          : `Layanan "${service.service_name}" berhasil ditambahkan.`
-      );
-    } catch (err) {
-      setCloudError(err instanceof Error ? err.message : 'Gagal menyimpan layanan ke cloud.');
-    }
-  };
-
-  const handleRequestSaveTherapists = async (nextTherapists: Therapist[]) => {
-    if (!currentAccount) return;
-    setCloudError(null);
-    try {
-      await saveWorkspaceTherapists(currentAccount.workspace_id, nextTherapists);
-      setNoticeMessage('Data terapis berhasil diperbarui.');
-    } catch (err) {
-      setCloudError(err instanceof Error ? err.message : 'Gagal menyimpan data terapis ke cloud.');
-    }
-  };
-
-  const handleAddTherapist = async (newTherapist: Therapist) => {
-    if (!currentAccount) return;
-    setCloudError(null);
-    try {
-      await saveWorkspaceTherapists(currentAccount.workspace_id, [
-        ...therapists,
-        newTherapist,
-      ]);
-      setNoticeMessage(
-        `Terapis "${newTherapist.name}" berhasil ditambahkan. Gunakan menu Manajemen Akun untuk membuatkan akun login.`
-      );
-    } catch (err) {
-      setCloudError(err instanceof Error ? err.message : 'Gagal menambahkan terapis ke cloud.');
-    }
-  };
-
-  const handleAccountCreated = (newAcc: UserAccount) => {
-    const isSeparateDb =
-      currentAccount && newAcc.workspace_id !== currentAccount.workspace_id;
+    updateActiveDatabase((prev) => ({
+      ...prev,
+      services: isEdit
+        ? prev.services.map((s) => (s.service_id === service.service_id ? service : s))
+        : [...prev.services, service],
+    }));
     setNoticeMessage(
-      isSeparateDb
-        ? `Akun Admin "${newAcc.username}" berhasil dibuat dengan database cloud terpisah.`
-        : `Akun "${newAcc.username}" berhasil dibuat dan dapat digunakan masuk di browser mana saja.`
+      isEdit
+        ? `Layanan "${service.service_name}" berhasil diperbarui.`
+        : `Layanan "${service.service_name}" berhasil ditambahkan.`
     );
   };
 
-  const handleToggleAccountActive = async (targetAcc: UserAccount, nextActive: boolean) => {
-    if (!currentAccount) return;
-    setCloudError(null);
-    try {
-      await toggleCloudAccountActive(targetAcc, nextActive, currentAccount.workspace_id);
-      setNoticeMessage(
-        `Akun "${targetAcc.username}" sekarang ${nextActive ? 'Aktif' : 'Nonaktif'}.`
-      );
-    } catch (err) {
-      setCloudError(err instanceof Error ? err.message : 'Gagal mengubah status akun.');
+  const handleRequestSaveTherapists = (nextTherapists: Therapist[]) => {
+    updateActiveDatabase((prev) => ({
+      ...prev,
+      therapists: nextTherapists,
+    }));
+    setNoticeMessage('Data terapis berhasil diperbarui.');
+  };
+
+  const handleAddTherapist = (newTherapist: Therapist) => {
+    updateActiveDatabase((prev) => ({
+      ...prev,
+      therapists: [...prev.therapists, newTherapist],
+    }));
+    setNoticeMessage(
+      `Terapis "${newTherapist.name}" berhasil ditambahkan. Buka Manajemen Akun untuk membuatkan akun login.`
+    );
+  };
+
+  const handleCreateAccount = (newAcc: UserAccount) => {
+    const isSeparateDb = !newAcc.owner_account_id;
+    if (isSeparateDb) {
+      loadAccountDatabase(newAcc.account_id, newAcc.username);
     }
+    setAccounts((prev) => [...prev, newAcc]);
+    setNoticeMessage(
+      isSeparateDb
+        ? `Akun Admin "${newAcc.username}" berhasil dibuat dengan database lokal terpisah.`
+        : `Akun "${newAcc.username}" berhasil dibuat.`
+    );
+  };
+
+  const handleUpdateAccount = (updatedAcc: UserAccount) => {
+    setAccounts((prev) =>
+      prev.map((a) => (a.account_id === updatedAcc.account_id ? updatedAcc : a))
+    );
+    setNoticeMessage(`Data akun "${updatedAcc.username}" berhasil diperbarui.`);
   };
 
   const handleRequestDeleteAccount = (targetAcc: UserAccount) => {
-    if (!currentAccount) return;
-    const ownsSeparateDb = targetAcc.workspace_id !== currentAccount.workspace_id;
-
+    const ownsSeparateDb = !targetAcc.owner_account_id;
     setConfirmDialog({
       title: 'Hapus Akun Login Ini?',
       message: ownsSeparateDb
-        ? `Akun "${targetAcc.username}" akan dihapus dan akses ke database terpisahnya dicabut.`
-        : `Akun "${targetAcc.username}" akan dicabut aksesnya dan tidak dapat digunakan lagi.`,
+        ? `Akun "${targetAcc.username}" dan database lokal terpisahnya akan dihapus dari browser.`
+        : `Akun "${targetAcc.username}" akan dihapus dan tidak dapat masuk lagi.`,
       confirmLabel: 'Ya, Hapus Akun',
       tone: 'danger',
       onConfirm: async () => {
-        await deleteCloudAccount(targetAcc, currentAccount.workspace_id);
+        if (ownsSeparateDb) {
+          deleteAccountDatabase(targetAcc.account_id);
+        }
+        setAccounts((prev) =>
+          prev.filter(
+            (a) =>
+              a.account_id !== targetAcc.account_id &&
+              (!ownsSeparateDb || a.owner_account_id !== targetAcc.account_id)
+          )
+        );
         setNoticeMessage(`Akun "${targetAcc.username}" telah dihapus.`);
       },
     });
   };
 
   const handleRequestImportDatabase = (importedDb: AccountDatabase) => {
-    if (!currentAccount) return;
     setConfirmDialog({
-      title: `Pulihkan Database Cloud (${importedDb.owner_username})?`,
+      title: `Pulihkan Database (${importedDb.owner_username})?`,
       message:
-        'Seluruh data terapis, layanan, dan reservasi di ruang kerja akun ini akan diganti dengan isi file JSON cadangan.',
+        'Seluruh data terapis, layanan, dan reservasi pada akun ini akan diganti dengan isi file JSON cadangan.',
       details: [
         `Terapis: ${importedDb.therapists.length} data`,
         `Layanan: ${importedDb.services.length} paket`,
@@ -474,70 +389,84 @@ export default function App() {
       confirmLabel: 'Ya, Pulihkan Database',
       tone: 'primary',
       onConfirm: async () => {
-        await importWorkspaceDatabaseToCloud({
-          workspaceId: currentAccount.workspace_id,
-          ownerUid: workspaceOwnerUid,
-          adminUids: workspaceAdminUids,
-          existingBookingIds: bookings.map((b) => b.booking_id),
-          imported: importedDb,
-          therapistUidByTherapistId,
-        });
-        setNoticeMessage('Database cloud berhasil dipulihkan dari file JSON.');
+        saveAccountDatabase(importedDb);
+        setAccountDb(importedDb);
+        setNoticeMessage('Database akun berhasil dipulihkan dari file JSON.');
+      },
+    });
+  };
+
+  const handleRequestImportMasterBundle = (bundle: MasterBundlePayload) => {
+    setConfirmDialog({
+      title: 'Pulihkan Paket Master (.json)?',
+      message:
+        'Seluruh daftar akun dan database di browser ini akan diganti dengan isi file Paket Master.',
+      details: [
+        `Jumlah akun: ${bundle.accounts.length} akun`,
+        `Jumlah database: ${Object.keys(bundle.databases).length} ruang kerja`,
+      ],
+      confirmLabel: 'Ya, Pulihkan Paket Master',
+      tone: 'primary',
+      onConfirm: async () => {
+        const restoredAccounts = restoreMasterBundle(bundle);
+        setAccounts(restoredAccounts);
+        const matchingActive = restoredAccounts.find(
+          (a) => a.account_id === currentAccountId && a.is_active
+        );
+        if (!matchingActive) {
+          setCurrentAccountId(null);
+          setAccountDb(null);
+        } else {
+          const ownerId = getWorkspaceOwnerId(matchingActive);
+          const ownerAcc = restoredAccounts.find((a) => a.account_id === ownerId);
+          setAccountDb(loadAccountDatabase(ownerId, ownerAcc?.username ?? matchingActive.username));
+        }
+        setNoticeMessage('Paket Master berhasil dipulihkan.');
       },
     });
   };
 
   const handleRequestResetDatabase = () => {
-    if (!currentAccount || !activeAccountDatabase) return;
+    if (!accountDb) return;
     setConfirmDialog({
-      title: `Reset Database Cloud (${activeAccountDatabase.owner_username})?`,
+      title: `Reset Database (${accountDb.owner_username})?`,
       message:
-        'Seluruh riwayat reservasi di ruang kerja ini akan dihapus, sedangkan data terapis dan layanan dikembalikan ke pengaturan awal.',
+        'Seluruh riwayat reservasi pada database akun ini akan dihapus, sedangkan data terapis dan layanan dikembalikan ke pengaturan awal.',
       confirmLabel: 'Ya, Reset Database',
       tone: 'danger',
       onConfirm: async () => {
-        await resetWorkspaceDatabaseInCloud({
-          workspaceId: currentAccount.workspace_id,
-          existingBookingIds: bookings.map((b) => b.booking_id),
-        });
-        setNoticeMessage('Database ruang kerja telah direset ke pengaturan awal.');
+        const fresh = resetAccountDatabase(
+          accountDb.owner_account_id,
+          accountDb.owner_username
+        );
+        setAccountDb(fresh);
+        setNoticeMessage('Database akun telah direset ke pengaturan awal.');
       },
     });
   };
 
+  if (!currentAccount || !accountDb) {
+    return (
+      <AdminLockScreen
+        accounts={accounts}
+        onLoginSuccess={handleLoginSuccess}
+        onMasterSetupSuccess={handleMasterSetupSuccess}
+        onImportMasterBundle={(restoredAccounts) => {
+          setAccounts(restoredAccounts);
+          setLegacySeed(undefined);
+        }}
+        onResetAllData={handleResetAllLocalData}
+      />
+    );
+  }
+
+  const { therapists, services, bookings } = accountDb;
   const selectedBookingService = selectedBooking
     ? services.find((s) => s.service_id === selectedBooking.service_id)
     : undefined;
   const selectedBookingTherapist = selectedBooking
     ? therapists.find((t) => t.therapist_id === selectedBooking.therapist_id)
     : undefined;
-
-  if (!currentAccount || !activeAccountDatabase) {
-    return (
-      <AdminLockScreen
-        isInitialized={isInitialized}
-        initError={initError}
-        legacyLocalData={legacyLocalData}
-        onRetryInit={() => void verifySystemBoot()}
-        onLoginSuccess={(account) => {
-          setCurrentAccount(account);
-          setIsInitialized(true);
-          setActiveTab('calendar');
-          setNoticeMessage(null);
-          setCloudError(null);
-        }}
-        onMasterSetupSuccess={(masterAccount) => {
-          setCurrentAccount(masterAccount);
-          setIsInitialized(true);
-          setActiveTab('calendar');
-          setNoticeMessage(
-            `Akun Admin Master "${masterAccount.username}" aktif dan siap dipakai di multi browser.`
-          );
-          setCloudError(null);
-        }}
-      />
-    );
-  }
 
   const isAdmin = currentAccount.role === 'ADMIN';
   const activeTherapistProfile =
@@ -647,10 +576,13 @@ export default function App() {
               currentAccount={currentAccount}
               displayLabel={activeTherapistProfile?.name ?? currentAccount.display_name}
               onOpenAccountManagement={() => setActiveTab('accounts')}
-              onPasswordChanged={() =>
-                setNoticeMessage('Kata sandi akun Anda berhasil diperbarui.')
-              }
-              onSignOut={() => void handleSignOut()}
+              onPasswordUpdated={(updated) => {
+                setAccounts((prev) =>
+                  prev.map((a) => (a.account_id === updated.account_id ? updated : a))
+                );
+                setNoticeMessage('Kata sandi akun Anda berhasil diperbarui.');
+              }}
+              onSignOut={handleSignOut}
             />
           </div>
         </div>
@@ -667,25 +599,6 @@ export default function App() {
               type="button"
               onClick={() => setNoticeMessage(null)}
               className="text-sm font-semibold underline hover:text-emerald-950"
-            >
-              Tutup
-            </button>
-          </div>
-        )}
-
-        {cloudError && (
-          <div
-            role="alert"
-            className="mb-4 flex items-center justify-between gap-3 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-800"
-          >
-            <div className="flex items-center gap-2">
-              <AlertCircle className="h-4 w-4 shrink-0" />
-              <span>{cloudError}</span>
-            </div>
-            <button
-              type="button"
-              onClick={() => setCloudError(null)}
-              className="text-sm font-semibold underline hover:text-red-950"
             >
               Tutup
             </button>
@@ -736,22 +649,22 @@ export default function App() {
 
         {isAdmin && activeTab === 'accounts' && (
           <AccountsView
-            accounts={managedAccounts}
+            accounts={workspaceAccounts}
+            allAccounts={accounts}
             therapists={therapists}
             currentAccount={currentAccount}
-            workspaceId={currentAccount.workspace_id}
-            workspaceOwnerUid={workspaceOwnerUid}
-            workspaceAdminUids={workspaceAdminUids}
-            onAccountCreated={handleAccountCreated}
-            onToggleActive={handleToggleAccountActive}
+            onCreateAccount={handleCreateAccount}
+            onUpdateAccount={handleUpdateAccount}
             onRequestDeleteAccount={handleRequestDeleteAccount}
           />
         )}
 
         {isAdmin && activeTab === 'database' && (
           <DatabasePanel
-            database={activeAccountDatabase}
+            database={accountDb}
+            allAccounts={accounts}
             onRequestImportDatabase={handleRequestImportDatabase}
+            onRequestImportMasterBundle={handleRequestImportMasterBundle}
             onRequestResetDatabase={handleRequestResetDatabase}
           />
         )}
