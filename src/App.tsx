@@ -515,124 +515,133 @@ export default function App() {
     <div className="min-h-screen bg-neutral-50 text-neutral-900 print:hidden">
       {/* Bilah navigasi atas */}
       <header className="border-b border-neutral-200 bg-white">
-        <div className="mx-auto flex max-w-7xl flex-wrap items-center justify-between gap-4 px-4 py-3 md:px-6">
-          <div className="flex shrink-0 items-center gap-3">
-            <img
-              src={CLINIC_LOGO_SRC}
-              alt={`Logo ${CLINIC_NAME}`}
-              className="h-10 w-10 shrink-0 rounded-full border border-neutral-200 object-cover"
-            />
-            <span className="shrink-0 whitespace-nowrap text-lg font-bold tracking-tight text-neutral-900">
-              {CLINIC_NAME}
-            </span>
+        <div className="mx-auto max-w-7xl px-4 md:px-6">
+          {/* Baris atas: merek di tengah dan menu akun di kanan atas */}
+          <div className="flex flex-col items-center gap-3 py-3 md:grid md:grid-cols-[1fr_auto_1fr] md:items-center md:gap-4">
+            <div className="hidden md:block" aria-hidden="true" />
+
+            <div className="flex items-center justify-center gap-3">
+              <img
+                src={CLINIC_LOGO_SRC}
+                alt={`Logo ${CLINIC_NAME}`}
+                className="h-10 w-10 shrink-0 rounded-full border border-neutral-200 object-cover"
+              />
+              <span className="whitespace-nowrap text-lg font-bold tracking-tight text-neutral-900">
+                {CLINIC_NAME}
+              </span>
+            </div>
+
+            <div className="flex flex-wrap items-center justify-center gap-2 md:justify-end">
+              <AccountMenu
+                currentAccount={currentAccount}
+                displayLabel={activeTherapistProfile?.name ?? currentAccount.display_name}
+                onOpenAccountManagement={() => setActiveTab('accounts')}
+                onPasswordUpdated={(updated) => {
+                  setAccounts((prev) =>
+                    prev.map((a) => (a.account_id === updated.account_id ? updated : a))
+                  );
+                  setNoticeMessage('Kata sandi akun Anda berhasil diperbarui.');
+                }}
+                onSignOut={handleSignOut}
+              />
+            </div>
           </div>
 
-          <nav
-            aria-label="Navigasi utama"
-            className="flex items-center gap-4 overflow-x-auto text-sm font-medium text-neutral-600"
-          >
-            <button
-              type="button"
-              onClick={() => setActiveTab('calendar')}
-              className={`inline-flex min-h-[40px] shrink-0 items-center gap-1.5 whitespace-nowrap border-b-2 px-1 py-1.5 transition-colors focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-amber-700 ${
-                activeTab === 'calendar'
-                  ? 'border-amber-700 text-amber-800'
-                  : 'border-transparent text-neutral-600 hover:text-neutral-900'
-              }`}
+          {/* Baris navigasi tab dan aksi utama */}
+          <div className="flex flex-wrap items-center justify-between gap-3 border-t border-neutral-200 py-2">
+            <nav
+              aria-label="Navigasi utama"
+              className="flex items-center gap-4 overflow-x-auto text-sm font-medium text-neutral-600"
             >
-              <Calendar className="h-4 w-4" />
-              <span>{isAdmin ? 'Jadwal Harian' : 'Jadwal Saya'}</span>
-            </button>
+              <button
+                type="button"
+                onClick={() => setActiveTab('calendar')}
+                className={`inline-flex min-h-[40px] shrink-0 items-center gap-1.5 whitespace-nowrap border-b-2 px-1 py-1.5 transition-colors focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-amber-700 ${
+                  activeTab === 'calendar'
+                    ? 'border-amber-700 text-amber-800'
+                    : 'border-transparent text-neutral-600 hover:text-neutral-900'
+                }`}
+              >
+                <Calendar className="h-4 w-4" />
+                <span>{isAdmin ? 'Jadwal Harian' : 'Jadwal Saya'}</span>
+              </button>
 
-            {isAdmin && (
-              <>
-                <button
-                  type="button"
-                  onClick={() => setActiveTab('services')}
-                  className={`inline-flex min-h-[40px] shrink-0 items-center gap-1.5 whitespace-nowrap border-b-2 px-1 py-1.5 transition-colors focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-amber-700 ${
-                    activeTab === 'services'
-                      ? 'border-amber-700 text-amber-800'
-                      : 'border-transparent text-neutral-600 hover:text-neutral-900'
-                  }`}
-                >
-                  <Scissors className="h-4 w-4" />
-                  <span>Layanan</span>
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setActiveTab('therapists')}
-                  className={`inline-flex min-h-[40px] shrink-0 items-center gap-1.5 whitespace-nowrap border-b-2 px-1 py-1.5 transition-colors focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-amber-700 ${
-                    activeTab === 'therapists'
-                      ? 'border-amber-700 text-amber-800'
-                      : 'border-transparent text-neutral-600 hover:text-neutral-900'
-                  }`}
-                >
-                  <Users className="h-4 w-4" />
-                  <span>Terapis</span>
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setActiveTab('loyalty')}
-                  className={`inline-flex min-h-[40px] shrink-0 items-center gap-1.5 whitespace-nowrap border-b-2 px-1 py-1.5 transition-colors focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-amber-700 ${
-                    activeTab === 'loyalty'
-                      ? 'border-amber-700 text-amber-800'
-                      : 'border-transparent text-neutral-600 hover:text-neutral-900'
-                  }`}
-                >
-                  <Gift className="h-4 w-4" />
-                  <span>Pelanggan</span>
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setActiveTab('revenue')}
-                  className={`inline-flex min-h-[40px] shrink-0 items-center gap-1.5 whitespace-nowrap border-b-2 px-1 py-1.5 transition-colors focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-amber-700 ${
-                    activeTab === 'revenue'
-                      ? 'border-amber-700 text-amber-800'
-                      : 'border-transparent text-neutral-600 hover:text-neutral-900'
-                  }`}
-                >
-                  <BarChart3 className="h-4 w-4" />
-                  <span>Pendapatan</span>
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setActiveTab('database')}
-                  className={`inline-flex min-h-[40px] shrink-0 items-center gap-1.5 whitespace-nowrap border-b-2 px-1 py-1.5 transition-colors focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-amber-700 ${
-                    activeTab === 'database'
-                      ? 'border-amber-700 text-amber-800'
-                      : 'border-transparent text-neutral-600 hover:text-neutral-900'
-                  }`}
-                >
-                  <Database className="h-4 w-4" />
-                  <span>Database</span>
-                </button>
-              </>
-            )}
-          </nav>
+              {isAdmin && (
+                <>
+                  <button
+                    type="button"
+                    onClick={() => setActiveTab('services')}
+                    className={`inline-flex min-h-[40px] shrink-0 items-center gap-1.5 whitespace-nowrap border-b-2 px-1 py-1.5 transition-colors focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-amber-700 ${
+                      activeTab === 'services'
+                        ? 'border-amber-700 text-amber-800'
+                        : 'border-transparent text-neutral-600 hover:text-neutral-900'
+                    }`}
+                  >
+                    <Scissors className="h-4 w-4" />
+                    <span>Layanan</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setActiveTab('therapists')}
+                    className={`inline-flex min-h-[40px] shrink-0 items-center gap-1.5 whitespace-nowrap border-b-2 px-1 py-1.5 transition-colors focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-amber-700 ${
+                      activeTab === 'therapists'
+                        ? 'border-amber-700 text-amber-800'
+                        : 'border-transparent text-neutral-600 hover:text-neutral-900'
+                    }`}
+                  >
+                    <Users className="h-4 w-4" />
+                    <span>Terapis</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setActiveTab('loyalty')}
+                    className={`inline-flex min-h-[40px] shrink-0 items-center gap-1.5 whitespace-nowrap border-b-2 px-1 py-1.5 transition-colors focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-amber-700 ${
+                      activeTab === 'loyalty'
+                        ? 'border-amber-700 text-amber-800'
+                        : 'border-transparent text-neutral-600 hover:text-neutral-900'
+                    }`}
+                  >
+                    <Gift className="h-4 w-4" />
+                    <span>Pelanggan</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setActiveTab('revenue')}
+                    className={`inline-flex min-h-[40px] shrink-0 items-center gap-1.5 whitespace-nowrap border-b-2 px-1 py-1.5 transition-colors focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-amber-700 ${
+                      activeTab === 'revenue'
+                        ? 'border-amber-700 text-amber-800'
+                        : 'border-transparent text-neutral-600 hover:text-neutral-900'
+                    }`}
+                  >
+                    <BarChart3 className="h-4 w-4" />
+                    <span>Pendapatan</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setActiveTab('database')}
+                    className={`inline-flex min-h-[40px] shrink-0 items-center gap-1.5 whitespace-nowrap border-b-2 px-1 py-1.5 transition-colors focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-amber-700 ${
+                      activeTab === 'database'
+                        ? 'border-amber-700 text-amber-800'
+                        : 'border-transparent text-neutral-600 hover:text-neutral-900'
+                    }`}
+                  >
+                    <Database className="h-4 w-4" />
+                    <span>Database</span>
+                  </button>
+                </>
+              )}
+            </nav>
 
-          <div className="flex shrink-0 items-center gap-2.5">
             {isAdmin && (
               <button
                 type="button"
                 onClick={() => handleOpenCreateModal(undefined, '10:00')}
-                className="inline-flex min-h-[44px] items-center gap-2 whitespace-nowrap rounded-xl bg-amber-700 px-4 py-2 text-sm font-medium text-white hover:bg-amber-800 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-amber-700"
+                className="inline-flex min-h-[44px] shrink-0 items-center gap-2 whitespace-nowrap rounded-xl bg-amber-700 px-4 py-2 text-sm font-medium text-white hover:bg-amber-800 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-amber-700"
               >
                 <Plus className="h-4 w-4" />
                 <span>Buat Reservasi</span>
               </button>
             )}
-            <AccountMenu
-              currentAccount={currentAccount}
-              displayLabel={activeTherapistProfile?.name ?? currentAccount.display_name}
-              onOpenAccountManagement={() => setActiveTab('accounts')}
-              onPasswordUpdated={(updated) => {
-                setAccounts((prev) =>
-                  prev.map((a) => (a.account_id === updated.account_id ? updated : a))
-                );
-                setNoticeMessage('Kata sandi akun Anda berhasil diperbarui.');
-              }}
-              onSignOut={handleSignOut}
-            />
           </div>
         </div>
       </header>
