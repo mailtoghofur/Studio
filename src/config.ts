@@ -1,4 +1,4 @@
-// Konfigurasi utama aturan bisnis PRD, data awal terapis dan layanan, serta pengaturan Google Sheets.
+// Konfigurasi utama aturan bisnis PRD, data awal terapis dan layanan, serta awalan penyimpanan database per akun.
 
 import type { BookingStatus, LocationType, Service, ServiceCategory, Therapist } from './lib/types';
 
@@ -81,33 +81,5 @@ export const STATUS_LABELS: Record<BookingStatus, string> = {
   CANCELLED: 'Dibatalkan',
 };
 
-export const SHEET_TABS = {
-  therapists: 'Terapis',
-  services: 'Layanan',
-  bookings: 'Reservasi',
-} as const;
-
-export const SHEET_HEADERS = {
-  therapists: ['therapist_id', 'name', 'is_active'],
-  services: ['service_id', 'category', 'service_name', 'duration_minutes', 'price', 'allow_home_service'],
-  bookings: [
-    'booking_id',
-    'patient_name',
-    'patient_phone',
-    'service_id',
-    'therapist_id',
-    'booking_date',
-    'start_time',
-    'end_time',
-    'location_type',
-    'patient_address',
-    'notes',
-    'status',
-    'created_at',
-    'updated_at',
-  ],
-} as const;
-
-export const OAUTH_SCOPES = ['https://www.googleapis.com/auth/spreadsheets'] as const;
-
 export const STORAGE_KEY = 'klinik_penjadwalan_v1';
+export const DB_KEY_PREFIX = 'klinik_db_';

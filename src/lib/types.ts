@@ -1,4 +1,4 @@
-// Definisi tipe data domain untuk jadwal, layanan, terapis, dan koneksi Google Sheets.
+// Definisi tipe data domain untuk akun pengguna, database per akun, jadwal, layanan, dan terapis.
 
 export type ServiceCategory = 'PIJAT' | 'FACIAL';
 
@@ -8,16 +8,14 @@ export type BookingStatus = 'SCHEDULED' | 'COMPLETED' | 'CANCELLED';
 
 export type UserRole = 'ADMIN' | 'THERAPIST';
 
-export type AuthMethod = 'GOOGLE' | 'LOCAL';
-
 export interface UserAccount {
   account_id: string;
-  auth_method?: AuthMethod;
-  google_email?: string;
   username: string;
   display_name: string;
   role: UserRole;
   therapist_id?: string;
+  /** ID akun Admin pemilik database yang dipakai bersama dalam satu cabang/klinik. */
+  owner_account_id?: string;
   salt: string;
   hash: string;
   is_active: boolean;
@@ -57,6 +55,16 @@ export interface Booking {
   updated_at: string;
 }
 
+export interface AccountDatabase {
+  database_id: string;
+  owner_account_id: string;
+  owner_username: string;
+  therapists: Therapist[];
+  services: Service[];
+  bookings: Booking[];
+  updated_at: string;
+}
+
 export interface TherapistAvailability {
   therapist: Therapist;
   available: boolean;
@@ -93,12 +101,6 @@ export interface BookingValidationResult {
   endTime: string;
   normalizedPhone: string | null;
   effectiveLocationType: LocationType;
-}
-
-export interface SpreadsheetConnection {
-  spreadsheetId: string;
-  title: string;
-  spreadsheetUrl: string;
 }
 
 export interface ConfirmDialogState {

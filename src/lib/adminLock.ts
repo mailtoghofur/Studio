@@ -1,4 +1,4 @@
-// Utilitas manajemen akun login Google maupun akun lokal SHA-256 di browser.
+// Utilitas manajemen akun username/password dan verifikasi hash SHA-256 di browser.
 
 import type { UserAccount, UserRole } from './types';
 
@@ -33,30 +33,11 @@ export async function hashAccountSecret(
   return bytesToHex(new Uint8Array(digest));
 }
 
-export function createGoogleAccount(params: {
-  google_email: string;
-  display_name: string;
-  role: UserRole;
-  therapist_id?: string;
-  is_active?: boolean;
-}): UserAccount {
-  const cleanEmail = params.google_email.trim().toLowerCase();
-  const nowIso = new Date().toISOString();
-
-  return {
-    account_id: `ACC-${Date.now().toString(36).toUpperCase()}-${Math.floor(100 + Math.random() * 900)}`,
-    auth_method: 'GOOGLE',
-    google_email: cleanEmail,
-    username: cleanEmail,
-    display_name: params.display_name.trim() || cleanEmail,
-    role: params.role,
-    therapist_id: params.role === 'THERAPIST' ? params.therapist_id : undefined,
-    salt: '',
-    hash: '',
-    is_active: params.is_active ?? true,
-    created_at: nowIso,
-    updated_at: nowIso,
-  };
+export function getWorkspaceOwnerId(account: UserAccount): string {
+  if (account.owner_account_id && account.owner_account_id.trim()) {
+    return account.owner_account_id.trim();
+  }
+  return account.account_id;
 }
 
 export async function createUserAccount(params: {
@@ -65,23 +46,22 @@ export async function createUserAccount(params: {
   password: string;
   role: UserRole;
   therapist_id?: string;
+  owner_account_id?: string;
   is_active?: boolean;
-  google_email?: string;
 }): Promise<UserAccount> {
   const cleanUser = params.username.trim();
-  const cleanEmail = params.google_email?.trim().toLowerCase() || undefined;
   const salt = generateRandomSalt();
   const hash = await hashAccountSecret(salt, cleanUser, params.password);
   const nowIso = new Date().toISOString();
+  const accountId = `ACC-${Date.now().toString(36).toUpperCase()}-${Math.floor(100 + Math.random() * 900)}`;
 
   return {
-    account_id: `ACC-${Date.now().toString(36).toUpperCase()}-${Math.floor(100 + Math.random() * 900)}`,
-    auth_method: cleanEmail ? 'GOOGLE' : 'LOCAL',
-    google_email: cleanEmail,
+    account_id: accountId,
     username: cleanUser,
     display_name: params.display_name.trim() || cleanUser,
     role: params.role,
     therapist_id: params.role === 'THERAPIST' ? params.therapist_id : undefined,
+    owner_account_id: params.owner_account_id ?? accountId,
     salt,
     hash,
     is_active: params.is_active ?? true,
@@ -143,87 +123,6 @@ export async function verifyAccountLogin(
   return { ok: true, account: found };
 }
 
-export type ResolveGoogleLoginResult =
-  | {
-      ok: true;
-      account: UserAccount;
-      nextAccounts: UserAccount[];
-      isAutoProvisioned: boolean;
-    }
-  | { ok: false; reason: string };
-
-export function resolveGoogleLogin(
-  accounts: UserAccount[],
-  googleEmail: string,
-  googleDisplayName?: string | null
-): ResolveGoogleLoginResult {
-  const cleanEmail = googleEmail.trim().toLowerCase();
-  if (!cleanEmail) {
-    return { ok: false, reason: 'Email akun Google tidak terbaca.' };
-  }
-
-  const exactMatch = accounts.find(
-    (acc) => acc.google_email?.trim().toLowerCase() === cleanEmail
-  );
-
-  if (exactMatch) {
-    if (!exactMatch.is_active) {
-      return {
-        ok: false,
-        reason: `Akun Google ${googleEmail} sedang dinonaktifkan oleh Admin klinik.`,
-      };
-    }
-    return {
-      ok: true,
-      account: exactMatch,
-      nextAccounts: accounts,
-      isAutoProvisioned: false,
-    };
-  }
-
-  const hasAnyGoogleAccount = accounts.some((acc) => Boolean(acc.google_email?.trim()));
-
-  // Bila belum ada akun Google terdaftar sama sekali, otomatis tautkan/daftarkan sebagai Admin utama
-  if (!hasAnyGoogleAccount) {
-    const existingAdmin = accounts.find((acc) => acc.role === 'ADMIN' && acc.is_active);
-    if (existingAdmin) {
-      const linkedAdmin: UserAccount = {
-        ...existingAdmin,
-        auth_method: 'GOOGLE',
-        google_email: cleanEmail,
-        display_name: googleDisplayName?.trim() || existingAdmin.display_name,
-        updated_at: new Date().toISOString(),
-      };
-      return {
-        ok: true,
-        account: linkedAdmin,
-        nextAccounts: accounts.map((acc) =>
-          acc.account_id === linkedAdmin.account_id ? linkedAdmin : acc
-        ),
-        isAutoProvisioned: true,
-      };
-    }
-
-    const firstAdmin = createGoogleAccount({
-      google_email: cleanEmail,
-      display_name: googleDisplayName?.trim() || 'Admin Klinik',
-      role: 'ADMIN',
-      is_active: true,
-    });
-    return {
-      ok: true,
-      account: firstAdmin,
-      nextAccounts: [...accounts, firstAdmin],
-      isAutoProvisioned: true,
-    };
-  }
-
-  return {
-    ok: false,
-    reason: `Email Google ${googleEmail} belum terdaftar di sistem klinik. Minta Admin mendaftarkan email tersebut di Manajemen Akun.`,
-  };
-}
-
 export function migrateLegacyLockToAccount(
   legacyLock: AdminLockRecord | null | undefined
 ): UserAccount[] {
@@ -231,10 +130,10 @@ export function migrateLegacyLockToAccount(
   return [
     {
       account_id: 'ACC-ADMIN-1',
-      auth_method: 'LOCAL',
       username: legacyLock.username,
       display_name: 'Admin Klinik',
       role: 'ADMIN',
+      owner_account_id: 'ACC-ADMIN-1',
       salt: legacyLock.salt,
       hash: legacyLock.hash,
       is_active: true,

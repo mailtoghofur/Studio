@@ -7,8 +7,8 @@ Dokumen ini mencatat seluruh keputusan desain yang telah disetujui pengguna.
 - **Kesan Visual & Tipografi**: Ramah dan hangat menggunakan **Plus Jakarta Sans** (ketebalan 400, 500, 600, 700), dipasang lokal via npm (`@fontsource/plus-jakarta-sans`).
 - **Warna Aksen**: Emas matang (*Gold* / `amber-700` `#B45309` untuk tombol utama dan teks aksen dengan kontras >= 4,5:1; `amber-50` untuk penanda terpilih).
 - **Sapaan**: Anda.
-- **Susunan Halaman**: Satu halaman dasbor dengan navigasi tab ringkas (Jadwal Harian, Katalog Layanan, Terapis, Ekspor & Sheet), tombol aksi utama **Buat Reservasi**, serta modul akun dropdown di pojok kanan atas.
-- **Penyimpanan**: Penyimpanan lokal browser, ekspor CSV, dan sinkronisasi Google Sheets opsional dengan 3 tab (`Terapis`, `Layanan`, `Reservasi`).
+- **Susunan Halaman**: Satu halaman dasbor dengan navigasi tab ringkas (Jadwal Harian, Layanan, Terapis, Pendapatan, Database), tombol aksi utama **Buat Reservasi**, serta modul akun dropdown di pojok kanan atas.
+- **Penyimpanan**: Database lokal sederhana di browser yang tersimpan terpisah per akun pemilik (`klinik_db_<owner_account_id>`), dilengkapi ekspor/impor cadangan JSON dan ekspor tabel CSV.
 
 ## Token Visual
 - **Latar Halaman**: `bg-neutral-50` (`#FAFAFA`)
