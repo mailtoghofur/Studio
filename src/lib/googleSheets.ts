@@ -198,8 +198,21 @@ interface SpreadsheetMetadataResponse {
 
 export async function createClinicSpreadsheet(
   accessToken: string,
-  title = 'Database Penjadwalan Naomi Beauty & Wellness'
+  title = 'Database Penjadwalan Naomi Beauty & Wellness',
+  initialData?: {
+    therapists: Therapist[];
+    services: Service[];
+    bookings: Booking[];
+  }
 ): Promise<SpreadsheetConnection> {
+  const therapistsToSeed = initialData?.therapists.length
+    ? initialData.therapists
+    : DEFAULT_THERAPISTS;
+  const servicesToSeed = initialData?.services.length
+    ? initialData.services
+    : DEFAULT_SERVICES;
+  const bookingsToSeed = initialData?.bookings ?? [];
+
   const created = await sheetsFetch<SpreadsheetMetadataResponse>(SHEETS_BASE_URL, accessToken, {
     method: 'POST',
     body: JSON.stringify({
@@ -221,22 +234,25 @@ export async function createClinicSpreadsheet(
         valueInputOption: 'RAW',
         data: [
           {
-            range: `'${SHEET_TABS.therapists}'!A1:C4`,
+            range: `'${SHEET_TABS.therapists}'!A1:C${therapistsToSeed.length + 1}`,
             values: [
               [...SHEET_HEADERS.therapists],
-              ...DEFAULT_THERAPISTS.map(therapistToRow),
+              ...therapistsToSeed.map(therapistToRow),
             ],
           },
           {
-            range: `'${SHEET_TABS.services}'!A1:F${DEFAULT_SERVICES.length + 1}`,
+            range: `'${SHEET_TABS.services}'!A1:F${servicesToSeed.length + 1}`,
             values: [
               [...SHEET_HEADERS.services],
-              ...DEFAULT_SERVICES.map(serviceToRow),
+              ...servicesToSeed.map(serviceToRow),
             ],
           },
           {
-            range: `'${SHEET_TABS.bookings}'!A1:N1`,
-            values: [[...SHEET_HEADERS.bookings]],
+            range: `'${SHEET_TABS.bookings}'!A1:N${bookingsToSeed.length + 1}`,
+            values: [
+              [...SHEET_HEADERS.bookings],
+              ...bookingsToSeed.map(bookingToRow),
+            ],
           },
         ],
       }),
@@ -468,6 +484,13 @@ export async function saveTherapistsToSheet(
   spreadsheetId: string,
   therapists: Therapist[]
 ): Promise<void> {
+  const clearRange = encodeURIComponent(`'${SHEET_TABS.therapists}'!A1:C300`);
+  await sheetsFetch(
+    `${SHEETS_BASE_URL}/${spreadsheetId}/values/${clearRange}:clear`,
+    accessToken,
+    { method: 'POST' }
+  );
+
   const range = encodeURIComponent(`'${SHEET_TABS.therapists}'!A1:C${therapists.length + 1}`);
   await sheetsFetch(
     `${SHEETS_BASE_URL}/${spreadsheetId}/values/${range}?valueInputOption=RAW`,
@@ -479,4 +502,55 @@ export async function saveTherapistsToSheet(
       }),
     }
   );
+}
+
+export async function syncAllClinicDataToSheet(
+  accessToken: string,
+  spreadsheetId: string,
+  data: {
+    therapists: Therapist[];
+    services: Service[];
+    bookings: Booking[];
+  }
+): Promise<void> {
+  await sheetsFetch(`${SHEETS_BASE_URL}/${spreadsheetId}/values:batchClear`, accessToken, {
+    method: 'POST',
+    body: JSON.stringify({
+      ranges: [
+        `'${SHEET_TABS.therapists}'!A1:C300`,
+        `'${SHEET_TABS.services}'!A1:F500`,
+        `'${SHEET_TABS.bookings}'!A1:N3000`,
+      ],
+    }),
+  });
+
+  await sheetsFetch(`${SHEETS_BASE_URL}/${spreadsheetId}/values:batchUpdate`, accessToken, {
+    method: 'POST',
+    body: JSON.stringify({
+      valueInputOption: 'RAW',
+      data: [
+        {
+          range: `'${SHEET_TABS.therapists}'!A1:C${data.therapists.length + 1}`,
+          values: [
+            [...SHEET_HEADERS.therapists],
+            ...data.therapists.map(therapistToRow),
+          ],
+        },
+        {
+          range: `'${SHEET_TABS.services}'!A1:F${data.services.length + 1}`,
+          values: [
+            [...SHEET_HEADERS.services],
+            ...data.services.map(serviceToRow),
+          ],
+        },
+        {
+          range: `'${SHEET_TABS.bookings}'!A1:N${data.bookings.length + 1}`,
+          values: [
+            [...SHEET_HEADERS.bookings],
+            ...data.bookings.map(bookingToRow),
+          ],
+        },
+      ],
+    }),
+  });
 }

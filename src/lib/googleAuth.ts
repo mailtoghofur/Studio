@@ -14,20 +14,29 @@ import { OAUTH_SCOPES } from '../config';
 const app = initializeApp(firebaseConfig);
 const auth = getAuth(app);
 
-const provider = new GoogleAuthProvider();
-for (const scope of OAUTH_SCOPES) {
-  provider.addScope(scope);
-}
-provider.setCustomParameters({
-  prompt: 'select_account',
-});
-
 let isSigningIn = false;
 let cachedAccessToken: string | null = null;
 
+function buildProvider(options?: { loginHint?: string; forceSelectAccount?: boolean }): GoogleAuthProvider {
+  const provider = new GoogleAuthProvider();
+  for (const scope of OAUTH_SCOPES) {
+    provider.addScope(scope);
+  }
+
+  const customParams: Record<string, string> = {};
+  if (options?.loginHint && !options.forceSelectAccount) {
+    customParams.login_hint = options.loginHint;
+  } else {
+    customParams.prompt = 'select_account';
+  }
+  provider.setCustomParameters(customParams);
+  return provider;
+}
+
 export function initAuth(
   onAuthSuccess?: (user: User, token: string) => void,
-  onAuthFailure?: () => void
+  onAuthNeedsToken?: (user: User) => void,
+  onAuthSignedOut?: () => void
 ) {
   return onAuthStateChanged(auth, (user: User | null) => {
     if (user) {
@@ -35,18 +44,22 @@ export function initAuth(
         onAuthSuccess?.(user, cachedAccessToken);
       } else if (!isSigningIn) {
         cachedAccessToken = null;
-        onAuthFailure?.();
+        onAuthNeedsToken?.(user);
       }
     } else {
       cachedAccessToken = null;
-      onAuthFailure?.();
+      onAuthSignedOut?.();
     }
   });
 }
 
-export async function googleSignIn(): Promise<{ user: User; accessToken: string }> {
+export async function googleSignIn(options?: {
+  loginHint?: string;
+  forceSelectAccount?: boolean;
+}): Promise<{ user: User; accessToken: string }> {
   try {
     isSigningIn = true;
+    const provider = buildProvider(options);
     const result = await signInWithPopup(auth, provider);
     const credential = GoogleAuthProvider.credentialFromResult(result);
     if (!credential?.accessToken) {
