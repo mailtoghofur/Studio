@@ -16,6 +16,7 @@ export const CLINIC_HOURS = {
 
 export const MAX_THERAPISTS = 3;
 export const THERAPIST_COMMISSION_RATE = 0.1;
+export const LOYALTY_MILESTONE_COUNT = 10;
 
 export const DEFAULT_THERAPISTS: Therapist[] = [
   { therapist_id: 'T-01', name: 'Sari Wulandari', is_active: true },

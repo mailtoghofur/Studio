@@ -7,7 +7,7 @@ Dokumen ini mencatat seluruh keputusan desain yang telah disetujui pengguna.
 - **Kesan Visual & Tipografi**: Ramah dan hangat menggunakan **Plus Jakarta Sans** (ketebalan 400, 500, 600, 700), dipasang lokal via npm (`@fontsource/plus-jakarta-sans`).
 - **Warna Aksen**: Emas matang (*Gold* / `amber-700` `#B45309` untuk tombol utama dan teks aksen dengan kontras >= 4,5:1; `amber-50` untuk penanda terpilih).
 - **Sapaan**: Anda.
-- **Susunan Halaman**: Satu halaman dasbor dengan navigasi tab ringkas (Jadwal Harian, Layanan, Terapis, Pendapatan, Database), tombol aksi utama **Buat Reservasi**, serta modul akun dropdown di pojok kanan atas.
+- **Susunan Halaman**: Satu halaman dasbor dengan navigasi tab ringkas (Jadwal Harian, Layanan, Terapis, Pelanggan, Pendapatan, Database), tombol aksi utama **Buat Reservasi**, serta modul akun dropdown di pojok kanan atas.
 - **Penyimpanan**: Database lokal browser (`localStorage`) sederhana yang tersimpan terpisah per ruang kerja akun, dilengkapi ekspor/impor cadangan JSON, Paket Master (`.json`) lintas browser, dan ekspor tabel CSV.
 
 ## Token Visual

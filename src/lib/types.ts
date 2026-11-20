@@ -55,6 +55,10 @@ export interface Booking {
   patient_address: string;
   notes: string;
   status: BookingStatus;
+  /** Penanda reservasi gratis hasil penukaran poin kesetiaan (10x pemesanan). */
+  is_loyalty_reward?: boolean;
+  /** Harga akhir transaksi (0 bila memakai hadiah gratis kesetiaan). */
+  final_price?: number;
   created_at: string;
   updated_at: string;
 }

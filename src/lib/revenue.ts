@@ -102,6 +102,14 @@ export function calculateTransactionCommission(amount: number): number {
   return Math.round(safeAmount * THERAPIST_COMMISSION_RATE);
 }
 
+export function getBookingEffectivePrice(booking: Booking, service?: Service): number {
+  if (booking.is_loyalty_reward) return 0;
+  if (typeof booking.final_price === 'number' && Number.isFinite(booking.final_price)) {
+    return Math.max(0, Math.round(booking.final_price));
+  }
+  return service ? Math.max(0, Math.round(service.price)) : 0;
+}
+
 export function getMonthKeyFromDate(dateStr: string): string {
   const parts = parseDateParts(dateStr);
   if (!parts) {
@@ -232,7 +240,7 @@ export function calculateRevenueReport(params: {
 
   for (const booking of inRangeBookings) {
     const service = serviceMap.get(booking.service_id);
-    const price = service ? Math.round(service.price) : 0;
+    const price = getBookingEffectivePrice(booking, service);
 
     if (booking.status === 'CANCELLED') {
       cancelledCount += 1;
@@ -326,7 +334,7 @@ export function calculateRevenueReport(params: {
       let dayCommission = 0;
       for (const b of dayBookings) {
         const s = serviceMap.get(b.service_id);
-        const price = s ? Math.round(s.price) : 0;
+        const price = getBookingEffectivePrice(b, s);
         dayRevenue += price;
         dayCommission += calculateTransactionCommission(price);
       }
@@ -359,7 +367,7 @@ export function calculateRevenueReport(params: {
       let bucketCommission = 0;
       for (const b of bucketBookings) {
         const s = serviceMap.get(b.service_id);
-        const price = s ? Math.round(s.price) : 0;
+        const price = getBookingEffectivePrice(b, s);
         bucketRevenue += price;
         bucketCommission += calculateTransactionCommission(price);
       }
@@ -384,7 +392,7 @@ export function calculateRevenueReport(params: {
           .map((booking) => {
             const service = serviceMap.get(booking.service_id);
             const therapist = therapistMap.get(booking.therapist_id);
-            const amount = service ? Math.round(service.price) : 0;
+            const amount = getBookingEffectivePrice(booking, service);
             return {
               booking,
               service_name: service?.service_name ?? `Layanan (${booking.service_id})`,

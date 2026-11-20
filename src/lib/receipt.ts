@@ -43,6 +43,7 @@ export interface ReceiptData {
   locationLabel: string;
   patientAddress?: string;
   notes?: string;
+  isLoyaltyReward: boolean;
   priceAmount: number;
   formattedTotal: string;
 }
@@ -75,7 +76,14 @@ export function buildReceiptData(params: {
   printedAt?: Date;
 }): ReceiptData {
   const { booking, service, therapist, printedAt = new Date() } = params;
-  const priceAmount = service ? Math.max(0, Math.round(service.price)) : 0;
+  const isLoyaltyReward = Boolean(booking.is_loyalty_reward);
+  const priceAmount = isLoyaltyReward
+    ? 0
+    : typeof booking.final_price === 'number'
+      ? Math.max(0, Math.round(booking.final_price))
+      : service
+        ? Math.max(0, Math.round(service.price))
+        : 0;
 
   return {
     receiptNumber: `RESI-${booking.booking_id}`,
@@ -97,8 +105,9 @@ export function buildReceiptData(params: {
         ? booking.patient_address
         : undefined,
     notes: booking.notes ? booking.notes : undefined,
+    isLoyaltyReward,
     priceAmount,
-    formattedTotal: formatRupiah(priceAmount),
+    formattedTotal: isLoyaltyReward ? 'Rp0 (Gratis Kesetiaan)' : formatRupiah(priceAmount),
   };
 }
 

@@ -4,6 +4,7 @@ import {
   BarChart3,
   Calendar,
   Database,
+  Gift,
   Plus,
   Scissors,
   Users,
@@ -17,6 +18,7 @@ import { BookingFormModal } from './components/BookingFormModal';
 import { ConfirmDialog } from './components/ConfirmDialog';
 import { DailyCalendarView } from './components/DailyCalendarView';
 import { DatabasePanel } from './components/DatabasePanel';
+import { LoyaltyView } from './components/LoyaltyView';
 import { ReceiptModal } from './components/ReceiptModal';
 import { RevenueSummaryView } from './components/RevenueSummaryView';
 import { ServicesView } from './components/ServicesView';
@@ -52,7 +54,14 @@ import type {
   UserAccount,
 } from './lib/types';
 
-type ActiveTab = 'calendar' | 'services' | 'therapists' | 'revenue' | 'accounts' | 'database';
+type ActiveTab =
+  | 'calendar'
+  | 'services'
+  | 'therapists'
+  | 'loyalty'
+  | 'revenue'
+  | 'accounts'
+  | 'database';
 
 interface StoredAccountsState {
   accounts: UserAccount[];
@@ -131,6 +140,11 @@ export default function App() {
     therapistId?: string;
     startTime?: string;
   }>({});
+  const [prefillCustomer, setPrefillCustomer] = useState<{
+    patientName: string;
+    patientPhone: string;
+    useLoyaltyReward?: boolean;
+  } | null>(null);
   const [editingBooking, setEditingBooking] = useState<Booking | null>(null);
   const [selectedBooking, setSelectedBooking] = useState<Booking | null>(null);
   const [receiptBooking, setReceiptBooking] = useState<Booking | null>(null);
@@ -219,6 +233,7 @@ export default function App() {
     setSelectedBooking(null);
     setReceiptBooking(null);
     setEditingBooking(null);
+    setPrefillCustomer(null);
     setFormOpen(false);
     setNoticeMessage(null);
   };
@@ -232,11 +247,13 @@ export default function App() {
     setAccountDb(null);
     setSelectedBooking(null);
     setReceiptBooking(null);
+    setPrefillCustomer(null);
     setNoticeMessage(null);
   };
 
   const handleOpenCreateModal = (therapistId?: string, startTime?: string) => {
     setEditingBooking(null);
+    setPrefillCustomer(null);
     setPrefillSlot({ therapistId, startTime });
     setFormOpen(true);
   };
@@ -264,6 +281,7 @@ export default function App() {
     }
     setFormOpen(false);
     setEditingBooking(null);
+    setPrefillCustomer(null);
   };
 
   const handleRequestStatusChange = (booking: Booking, nextStatus: BookingStatus) => {
@@ -554,6 +572,18 @@ export default function App() {
                 </button>
                 <button
                   type="button"
+                  onClick={() => setActiveTab('loyalty')}
+                  className={`inline-flex min-h-[40px] shrink-0 items-center gap-1.5 whitespace-nowrap border-b-2 px-1 py-1.5 transition-colors focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-amber-700 ${
+                    activeTab === 'loyalty'
+                      ? 'border-amber-700 text-amber-800'
+                      : 'border-transparent text-neutral-600 hover:text-neutral-900'
+                  }`}
+                >
+                  <Gift className="h-4 w-4" />
+                  <span>Pelanggan</span>
+                </button>
+                <button
+                  type="button"
                   onClick={() => setActiveTab('revenue')}
                   className={`inline-flex min-h-[40px] shrink-0 items-center gap-1.5 whitespace-nowrap border-b-2 px-1 py-1.5 transition-colors focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-amber-700 ${
                     activeTab === 'revenue'
@@ -657,6 +687,19 @@ export default function App() {
           />
         )}
 
+        {isAdmin && activeTab === 'loyalty' && (
+          <LoyaltyView
+            bookings={bookings}
+            services={services}
+            onBookWithCustomer={(prefill) => {
+              setEditingBooking(null);
+              setPrefillSlot({});
+              setPrefillCustomer(prefill);
+              setFormOpen(true);
+            }}
+          />
+        )}
+
         {isAdmin && activeTab === 'revenue' && (
           <RevenueSummaryView
             bookings={bookings}
@@ -695,6 +738,7 @@ export default function App() {
           onClose={() => {
             setFormOpen(false);
             setEditingBooking(null);
+            setPrefillCustomer(null);
           }}
           services={services}
           therapists={therapists}
@@ -702,6 +746,7 @@ export default function App() {
           initialDate={selectedDate}
           initialStartTime={prefillSlot.startTime}
           initialTherapistId={prefillSlot.therapistId}
+          initialCustomer={prefillCustomer}
           editingBooking={editingBooking}
           onRequestSave={handleRequestSaveBooking}
         />
@@ -716,6 +761,7 @@ export default function App() {
         onRequestStatusChange={handleRequestStatusChange}
         onStartReschedule={(booking) => {
           setSelectedBooking(null);
+          setPrefillCustomer(null);
           setEditingBooking(booking);
           setFormOpen(true);
         }}

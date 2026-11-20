@@ -109,7 +109,10 @@ export function BookingDetailModal({
                   <>
                     <span>{service.service_name}</span>
                     <span className="block text-xs font-normal text-neutral-600 tabular-nums">
-                      {service.duration_minutes} menit · {formatRupiah(service.price)}
+                      {service.duration_minutes} menit ·{' '}
+                      {booking.is_loyalty_reward
+                        ? 'Rp0 (Gratis Kesetiaan)'
+                        : formatRupiah(service.price)}
                     </span>
                   </>
                 ) : (

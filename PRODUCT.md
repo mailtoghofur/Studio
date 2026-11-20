@@ -19,3 +19,4 @@ Dokumen ini merangkum fitur dari PRD v1.0 beserta keputusan hasil klarifikasi pe
 | FT-06 | Manajemen Data Terapis (Tambah & Kelola Staf) | Should Have | - | Selesai |
 | FT-07 | Manajemen Akun & Kunci Akses Lokal | Should Have | FT-06 | Selesai |
 | FT-08 | Rekapitulasi Pendapatan Harian, Mingguan, dan Bulanan | Should Have | FT-02, FT-03, FT-05, FT-06 | Selesai |
+| FT-09 | Sistem Kesetiaan Pelanggan (10x Pemesanan Gratis 1x Paket Standar) | Should Have | FT-02, FT-03 | Selesai |

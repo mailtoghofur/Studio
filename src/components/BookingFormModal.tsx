@@ -1,9 +1,14 @@
 // Formulir pembuatan dan penjadwalan ulang reservasi dengan validasi slot real-time (FT-03 dan FT-04).
 
-import { AlertCircle, CheckCircle2, Home, Lock, MapPin, X } from 'lucide-react';
+import { AlertCircle, CheckCircle2, Gift, Home, Lock, MapPin, X } from 'lucide-react';
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { CATEGORY_LABELS, LOCATION_LABELS } from '../config';
+import { CATEGORY_LABELS, LOCATION_LABELS, LOYALTY_MILESTONE_COUNT } from '../config';
 import { formatDateIndo, formatRupiah, formatTimeDisplay } from '../lib/format';
+import {
+  findCustomerLoyaltyByPhone,
+  getStandardRewardServices,
+  isStandardRewardService,
+} from '../lib/loyalty';
 import {
   generateTimeSlotOptions,
   getEffectiveLocationType,
@@ -30,6 +35,11 @@ interface BookingFormModalProps {
   initialDate: string;
   initialStartTime?: string;
   initialTherapistId?: string;
+  initialCustomer?: {
+    patientName: string;
+    patientPhone: string;
+    useLoyaltyReward?: boolean;
+  } | null;
   editingBooking?: Booking | null;
   onRequestSave: (payload: {
     mode: 'create' | 'reschedule';
@@ -48,6 +58,7 @@ export function BookingFormModal({
   initialDate,
   initialStartTime = '10:00',
   initialTherapistId = '',
+  initialCustomer = null,
   editingBooking = null,
   onRequestSave,
 }: BookingFormModalProps) {
@@ -63,6 +74,7 @@ export function BookingFormModal({
     therapist_id: initialTherapistId,
     notes: '',
   });
+  const [useLoyaltyReward, setUseLoyaltyReward] = useState(false);
   const [errors, setErrors] = useState<BookingValidationErrors>({});
 
   const patientNameRef = useRef<HTMLInputElement>(null);
@@ -72,6 +84,8 @@ export function BookingFormModal({
   const dateRef = useRef<HTMLInputElement>(null);
   const startTimeRef = useRef<HTMLSelectElement>(null);
   const therapistSectionRef = useRef<HTMLDivElement>(null);
+
+  const standardServices = useMemo(() => getStandardRewardServices(services), [services]);
 
   useEffect(() => {
     if (!isOpen) return;
@@ -88,11 +102,18 @@ export function BookingFormModal({
         therapist_id: editingBooking.therapist_id,
         notes: editingBooking.notes,
       });
+      setUseLoyaltyReward(Boolean(editingBooking.is_loyalty_reward));
     } else {
+      const wantReward = Boolean(initialCustomer?.useLoyaltyReward);
+      const stdDefaultId =
+        standardServices.PIJAT?.service_id ??
+        standardServices.FACIAL?.service_id ??
+        services[0]?.service_id ??
+        '';
       setForm({
-        patient_name: '',
-        patient_phone: '',
-        service_id: services[0]?.service_id ?? '',
+        patient_name: initialCustomer?.patientName ?? '',
+        patient_phone: initialCustomer?.patientPhone ?? '',
+        service_id: wantReward ? stdDefaultId : (services[0]?.service_id ?? ''),
         location_type: 'CLINIC',
         patient_address: '',
         booking_date: initialDate,
@@ -100,8 +121,47 @@ export function BookingFormModal({
         therapist_id: initialTherapistId || '',
         notes: '',
       });
+      setUseLoyaltyReward(wantReward);
     }
-  }, [isOpen, editingBooking, initialDate, initialStartTime, initialTherapistId, services]);
+  }, [
+    isOpen,
+    editingBooking,
+    initialDate,
+    initialStartTime,
+    initialTherapistId,
+    initialCustomer,
+    services,
+    standardServices,
+  ]);
+
+  const customerLoyalty = useMemo(
+    () =>
+      findCustomerLoyaltyByPhone(
+        form.patient_phone,
+        bookings,
+        services,
+        editingBooking?.booking_id
+      ),
+    [form.patient_phone, bookings, services, editingBooking]
+  );
+
+  const canUseLoyaltyReward = Boolean(
+    (customerLoyalty && customerLoyalty.available_rewards_count > 0) ||
+      editingBooking?.is_loyalty_reward
+  );
+
+  const effectiveRewardMode = useLoyaltyReward && canUseLoyaltyReward;
+
+  useEffect(() => {
+    if (!canUseLoyaltyReward && useLoyaltyReward) {
+      setUseLoyaltyReward(false);
+    }
+  }, [canUseLoyaltyReward, useLoyaltyReward]);
+
+  const availableServicesForDropdown = useMemo(() => {
+    if (!effectiveRewardMode) return services;
+    return services.filter((s) => isStandardRewardService(s.service_id, services));
+  }, [effectiveRewardMode, services]);
 
   const selectedService = useMemo(
     () => services.find((s) => s.service_id === form.service_id),
@@ -218,6 +278,8 @@ export function BookingFormModal({
           : '',
       notes: form.notes.trim(),
       status: editingBooking ? editingBooking.status : 'SCHEDULED',
+      is_loyalty_reward: effectiveRewardMode,
+      final_price: effectiveRewardMode ? 0 : selectedService.price,
       created_at: editingBooking?.created_at ?? nowIso,
       updated_at: nowIso,
     };
@@ -231,8 +293,8 @@ export function BookingFormModal({
     });
   };
 
-  const massageServices = services.filter((s) => s.category === 'PIJAT');
-  const facialServices = services.filter((s) => s.category === 'FACIAL');
+  const massageServices = availableServicesForDropdown.filter((s) => s.category === 'PIJAT');
+  const facialServices = availableServicesForDropdown.filter((s) => s.category === 'FACIAL');
 
   return (
     <div
@@ -308,10 +370,90 @@ export function BookingFormModal({
             </div>
           </div>
 
+          {/* Status Kesetiaan Pelanggan (FT-09) */}
+          {(customerLoyalty || editingBooking?.is_loyalty_reward) && (
+            <div
+              className={`rounded-xl border p-3.5 text-sm ${
+                canUseLoyaltyReward
+                  ? 'border-emerald-200 bg-emerald-50 text-emerald-950'
+                  : 'border-neutral-200 bg-neutral-50 text-neutral-800'
+              }`}
+            >
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <div className="flex items-center gap-2 font-semibold">
+                  <Gift className="h-4 w-4 text-amber-700" />
+                  <span>
+                    {customerLoyalty
+                      ? `Kesetiaan Pelanggan: ${customerLoyalty.paid_bookings_count}x pemesanan`
+                      : 'Reservasi Hadiah Kesetiaan'}
+                  </span>
+                </div>
+                {customerLoyalty && (
+                  <span className="text-xs font-medium tabular-nums">
+                    {customerLoyalty.pijat_count} Pijat · {customerLoyalty.facial_count} Facial
+                  </span>
+                )}
+              </div>
+
+              {canUseLoyaltyReward ? (
+                <div className="mt-2.5 space-y-2">
+                  <p className="text-xs text-emerald-900">
+                    {customerLoyalty && customerLoyalty.available_rewards_count > 0
+                      ? `Pelanggan memiliki ${customerLoyalty.available_rewards_count}x hak gratis Pijat atau Facial paket standar.`
+                      : 'Reservasi ini menggunakan hadiah gratis paket standar.'}
+                  </p>
+                  <label className="flex min-h-[40px] cursor-pointer items-center gap-2.5 rounded-lg border border-emerald-200 bg-white px-3 py-2 text-sm font-medium text-neutral-900">
+                    <input
+                      type="checkbox"
+                      checked={effectiveRewardMode}
+                      onChange={(e) => {
+                        const checked = e.target.checked;
+                        setUseLoyaltyReward(checked);
+                        if (
+                          checked &&
+                          !isStandardRewardService(form.service_id, services)
+                        ) {
+                          const nextStdId =
+                            selectedService?.category === 'FACIAL'
+                              ? standardServices.FACIAL?.service_id
+                              : standardServices.PIJAT?.service_id;
+                          const fallbackId =
+                            nextStdId ??
+                            standardServices.PIJAT?.service_id ??
+                            standardServices.FACIAL?.service_id;
+                          if (fallbackId) {
+                            const nextSvc = services.find((s) => s.service_id === fallbackId);
+                            setForm((prev) => ({
+                              ...prev,
+                              service_id: fallbackId,
+                              location_type:
+                                nextSvc?.category === 'FACIAL' ? 'CLINIC' : prev.location_type,
+                            }));
+                          }
+                        }
+                      }}
+                      className="h-4 w-4 accent-amber-700"
+                    />
+                    <span>Gunakan Hadiah Gratis 1x Paket Standar (Rp0)</span>
+                  </label>
+                </div>
+              ) : (
+                customerLoyalty && (
+                  <p className="mt-1 text-xs text-neutral-600 tabular-nums">
+                    Progres ke hadiah gratis berikutnya: {customerLoyalty.cycle_progress}/
+                    {LOYALTY_MILESTONE_COUNT} (kurang {customerLoyalty.remaining_to_next_reward}{' '}
+                    pemesanan lagi).
+                  </p>
+                )
+              )}
+            </div>
+          )}
+
           {/* Pilihan Layanan */}
           <div>
             <label htmlFor="service_id" className="block text-sm font-medium text-neutral-800">
-              Paket Layanan <span className="text-red-700">*</span>
+              {effectiveRewardMode ? 'Paket Standar Gratis' : 'Paket Layanan'}{' '}
+              <span className="text-red-700">*</span>
             </label>
             <select
               ref={serviceRef}
@@ -329,12 +471,15 @@ export function BookingFormModal({
               }}
               className="mt-1.5 min-h-[44px] w-full rounded-xl border border-neutral-200 bg-white px-3.5 py-2 text-base text-neutral-900 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-amber-700"
             >
-              {services.length === 0 && <option value="">Belum ada layanan</option>}
+              {availableServicesForDropdown.length === 0 && (
+                <option value="">Belum ada layanan</option>
+              )}
               {massageServices.length > 0 && (
                 <optgroup label={CATEGORY_LABELS.PIJAT}>
                   {massageServices.map((s) => (
                     <option key={s.service_id} value={s.service_id}>
-                      {s.service_name} ({s.duration_minutes} menit · {formatRupiah(s.price)})
+                      {s.service_name} ({s.duration_minutes} menit ·{' '}
+                      {effectiveRewardMode ? 'Rp0 Gratis' : formatRupiah(s.price)})
                     </option>
                   ))}
                 </optgroup>
@@ -343,7 +488,8 @@ export function BookingFormModal({
                 <optgroup label={CATEGORY_LABELS.FACIAL}>
                   {facialServices.map((s) => (
                     <option key={s.service_id} value={s.service_id}>
-                      {s.service_name} ({s.duration_minutes} menit · {formatRupiah(s.price)})
+                      {s.service_name} ({s.duration_minutes} menit ·{' '}
+                      {effectiveRewardMode ? 'Rp0 Gratis' : formatRupiah(s.price)})
                     </option>
                   ))}
                 </optgroup>

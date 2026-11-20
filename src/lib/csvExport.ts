@@ -1,6 +1,7 @@
 // Utilitas ekspor data Terapis, Layanan, Reservasi, dan Rekap Pendapatan ke file CSV.
 
 import { CATEGORY_LABELS } from '../config';
+import type { CustomerLoyaltySummary } from './loyalty';
 import type { RevenueReport } from './revenue';
 import type { Booking, Service, Therapist } from './types';
 
@@ -161,5 +162,33 @@ export function exportRevenueCsv(report: RevenueReport): void {
       'porsi',
     ],
     rows
+  );
+}
+
+export function exportLoyaltyCsv(customers: CustomerLoyaltySummary[]): void {
+  downloadCsvFile(
+    'kesetiaan-pelanggan.csv',
+    [
+      'nama_pelanggan',
+      'nomor_hp',
+      'pemesanan_pijat',
+      'pemesanan_facial',
+      'total_pemesanan_terhitung',
+      'progres_siklus_10',
+      'hak_gratis_tersedia',
+      'hadiah_sudah_dipakai',
+      'kunjungan_terakhir',
+    ],
+    customers.map((c) => [
+      c.customer_name,
+      c.customer_phone,
+      c.pijat_count,
+      c.facial_count,
+      c.paid_bookings_count,
+      `${c.cycle_progress}/10`,
+      c.available_rewards_count,
+      c.redeemed_rewards_count,
+      c.last_booking_date,
+    ])
   );
 }
