@@ -10,16 +10,19 @@ export type UserRole = 'ADMIN' | 'THERAPIST';
 
 export interface UserAccount {
   account_id: string;
+  uid: string;
   username: string;
   display_name: string;
   role: UserRole;
   therapist_id?: string;
+  /** ID workspace database Firestore yang diakses akun ini. */
+  workspace_id: string;
   /** ID akun Admin pemilik database yang dipakai bersama dalam satu cabang/klinik. */
   owner_account_id?: string;
-  /** ID workspace pembuat akun apabila akun ini memiliki database terpisah. */
+  /** UID pembuat akun untuk akun yang memiliki database terpisah. */
+  created_by_uid?: string;
   created_by_owner_id?: string;
-  salt: string;
-  hash: string;
+  is_master: boolean;
   is_active: boolean;
   created_at: string;
   updated_at: string;

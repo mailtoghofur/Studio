@@ -8,7 +8,7 @@ Dokumen ini mencatat seluruh keputusan desain yang telah disetujui pengguna.
 - **Warna Aksen**: Emas matang (*Gold* / `amber-700` `#B45309` untuk tombol utama dan teks aksen dengan kontras >= 4,5:1; `amber-50` untuk penanda terpilih).
 - **Sapaan**: Anda.
 - **Susunan Halaman**: Satu halaman dasbor dengan navigasi tab ringkas (Jadwal Harian, Layanan, Terapis, Pendapatan, Database), tombol aksi utama **Buat Reservasi**, serta modul akun dropdown di pojok kanan atas.
-- **Penyimpanan**: Database lokal sederhana di browser yang tersimpan terpisah per akun pemilik (`klinik_db_<owner_account_id>`), dilengkapi ekspor/impor cadangan JSON dan ekspor tabel CSV.
+- **Penyimpanan**: Database cloud Firestore multi-browser terpisah per ruang kerja akun, dilengkapi ekspor/impor cadangan JSON dan ekspor tabel CSV.
 
 ## Token Visual
 - **Latar Halaman**: `bg-neutral-50` (`#FAFAFA`)

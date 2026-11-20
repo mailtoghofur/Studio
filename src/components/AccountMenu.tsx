@@ -1,15 +1,16 @@
-// Modul akun di pojok kanan atas dengan dropdown profil, manajemen akun (Admin), ubah sandi, dan menu keluar.
+// Modul akun di pojok kanan atas dengan dropdown profil, manajemen akun (Admin), ubah sandi cloud, dan menu keluar.
 
 import { ChevronDown, KeyRound, Lock, LogOut, ShieldCheck, User, Users, X } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
-import { updateAccountPassword } from '../lib/adminLock';
+import { changeOwnCloudPassword } from '../lib/cloudClinic';
+import { formatFirebaseAuthError } from '../lib/firebaseErrors';
 import type { UserAccount } from '../lib/types';
 
 interface AccountMenuProps {
   currentAccount: UserAccount;
   displayLabel: string;
   onOpenAccountManagement: () => void;
-  onUpdateSelfAccount: (updated: UserAccount) => void;
+  onPasswordChanged: () => void;
   onSignOut: () => void;
 }
 
@@ -17,20 +18,27 @@ export function AccountMenu({
   currentAccount,
   displayLabel,
   onOpenAccountManagement,
-  onUpdateSelfAccount,
+  onPasswordChanged,
   onSignOut,
 }: AccountMenuProps) {
   const [menuOpen, setMenuOpen] = useState(false);
   const [pwModalOpen, setPwModalOpen] = useState(false);
+  const [currentPassword, setCurrentPassword] = useState('');
   const [newPassword, setNewPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
   const [pwError, setPwError] = useState<string | null>(null);
   const [isSaving, setIsSaving] = useState(false);
 
   const containerRef = useRef<HTMLDivElement>(null);
-  const passwordInputRef = useRef<HTMLInputElement>(null);
+  const currentPasswordRef = useRef<HTMLInputElement>(null);
+  const newPasswordRef = useRef<HTMLInputElement>(null);
 
   const isAdmin = currentAccount.role === 'ADMIN';
+  const roleLabel = currentAccount.is_master
+    ? 'Admin Master'
+    : isAdmin
+      ? 'Admin'
+      : 'Terapis';
 
   useEffect(() => {
     if (!menuOpen) return;
@@ -60,18 +68,24 @@ export function AccountMenu({
 
   const openChangePassword = () => {
     setMenuOpen(false);
+    setCurrentPassword('');
     setNewPassword('');
     setConfirmPassword('');
     setPwError(null);
     setPwModalOpen(true);
-    setTimeout(() => passwordInputRef.current?.focus(), 0);
+    setTimeout(() => currentPasswordRef.current?.focus(), 0);
   };
 
   const handleSavePassword = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (!currentPassword) {
+      setPwError('Masukkan kata sandi saat ini untuk verifikasi.');
+      currentPasswordRef.current?.focus();
+      return;
+    }
     if (newPassword.length < 6) {
       setPwError('Kata sandi baru minimal 6 karakter.');
-      passwordInputRef.current?.focus();
+      newPasswordRef.current?.focus();
       return;
     }
     if (confirmPassword !== newPassword) {
@@ -82,9 +96,11 @@ export function AccountMenu({
     setIsSaving(true);
     setPwError(null);
     try {
-      const updated = await updateAccountPassword(currentAccount, newPassword);
+      await changeOwnCloudPassword(currentPassword, newPassword);
       setPwModalOpen(false);
-      onUpdateSelfAccount(updated);
+      onPasswordChanged();
+    } catch (err) {
+      setPwError(formatFirebaseAuthError(err));
     } finally {
       setIsSaving(false);
     }
@@ -108,7 +124,7 @@ export function AccountMenu({
               {displayLabel}
             </span>
             <span className="block text-xs font-normal leading-tight text-neutral-600">
-              {isAdmin ? 'Admin' : 'Terapis'}
+              {roleLabel}
             </span>
           </span>
           <ChevronDown
@@ -129,7 +145,7 @@ export function AccountMenu({
                 {displayLabel}
               </p>
               <p className="truncate text-xs text-neutral-600">
-                {currentAccount.username} · {isAdmin ? 'Admin Klinik' : 'Terapis'}
+                {currentAccount.username} · {roleLabel}
               </p>
             </div>
 
@@ -216,13 +232,32 @@ export function AccountMenu({
             <form onSubmit={handleSavePassword} noValidate className="mt-4 space-y-4">
               <div>
                 <label
+                  htmlFor="self-current-password"
+                  className="block text-sm font-medium text-neutral-800"
+                >
+                  Kata Sandi Saat Ini
+                </label>
+                <input
+                  ref={currentPasswordRef}
+                  id="self-current-password"
+                  type="password"
+                  autoComplete="current-password"
+                  value={currentPassword}
+                  onChange={(e) => setCurrentPassword(e.target.value)}
+                  placeholder="Masukkan kata sandi saat ini"
+                  className="mt-1.5 min-h-[44px] w-full rounded-xl border border-neutral-200 bg-white px-3.5 py-2 text-base text-neutral-900 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-amber-700"
+                />
+              </div>
+
+              <div>
+                <label
                   htmlFor="self-new-password"
                   className="block text-sm font-medium text-neutral-800"
                 >
                   Kata Sandi Baru
                 </label>
                 <input
-                  ref={passwordInputRef}
+                  ref={newPasswordRef}
                   id="self-new-password"
                   type="password"
                   autoComplete="new-password"

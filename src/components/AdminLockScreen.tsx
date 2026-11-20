@@ -1,26 +1,35 @@
-// Layar masuk utama menggunakan username dan kata sandi (pembuatan akun baru hanya melalui Manajemen Akun setelah masuk).
+// Layar masuk multi-browser dengan satu akun Admin Master serta akun Terapis dan Admin tambahan dari Manajemen Akun.
 
-import { Eye, EyeOff, RotateCcw } from 'lucide-react';
+import { ExternalLink, Eye, EyeOff, Loader2 } from 'lucide-react';
 import { useRef, useState } from 'react';
 import { CLINIC_LOGO_SRC, CLINIC_NAME } from '../config';
-import { createUserAccount, verifyAccountLogin } from '../lib/adminLock';
-import type { UserAccount } from '../lib/types';
+import { bootstrapMasterWorkspace, loginWithUsernamePassword } from '../lib/cloudClinic';
+import { FIREBASE_PROJECT_ID } from '../lib/firebase';
+import { formatFirebaseAuthError, isAuthProviderDisabledError } from '../lib/firebaseErrors';
+import type { Booking, Service, Therapist, UserAccount } from '../lib/types';
 
 interface AdminLockScreenProps {
-  accounts: UserAccount[];
+  isInitialized: boolean | null;
+  initError: string | null;
+  legacyLocalData?: {
+    therapists?: Therapist[];
+    services?: Service[];
+    bookings?: Booking[];
+  };
+  onRetryInit: () => void;
   onLoginSuccess: (account: UserAccount) => void;
-  onCreateAdminAccount: (adminAccount: UserAccount) => void;
-  onRequestResetLock: () => void;
+  onMasterSetupSuccess: (account: UserAccount) => void;
 }
 
 export function AdminLockScreen({
-  accounts,
+  isInitialized,
+  initError,
+  legacyLocalData,
+  onRetryInit,
   onLoginSuccess,
-  onCreateAdminAccount,
-  onRequestResetLock,
+  onMasterSetupSuccess,
 }: AdminLockScreenProps) {
-  const validPasswordAccounts = accounts.filter((acc) => Boolean(acc.hash && acc.salt));
-  const isInitialSetup = validPasswordAccounts.length === 0;
+  const isInitialSetup = isInitialized === false;
 
   const [displayName, setDisplayName] = useState('');
   const [username, setUsername] = useState('');
@@ -28,6 +37,7 @@ export function AdminLockScreen({
   const [confirmPassword, setConfirmPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
+  const [showProviderGuide, setShowProviderGuide] = useState(false);
   const [fieldErrors, setFieldErrors] = useState<{
     username?: string;
     password?: string;
@@ -39,14 +49,17 @@ export function AdminLockScreen({
   const passwordRef = useRef<HTMLInputElement>(null);
   const confirmRef = useRef<HTMLInputElement>(null);
 
+  const firebaseProvidersUrl = `https://console.firebase.google.com/project/${FIREBASE_PROJECT_ID}/authentication/providers`;
+
   const handleInitialSetupSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     const cleanUser = username.trim();
     const cleanDisplay = displayName.trim();
     const nextErrors: typeof fieldErrors = {};
 
-    if (cleanUser.length < 3 || /\s/.test(cleanUser)) {
-      nextErrors.username = 'Username minimal 3 karakter tanpa spasi, contoh: admin.';
+    if (cleanUser.length < 3 || !/^[a-zA-Z0-9._-]+$/.test(cleanUser)) {
+      nextErrors.username =
+        'Username minimal 3 karakter (huruf, angka, titik, atau garis bawah), contoh: admin.';
     }
     if (password.length < 6) {
       nextErrors.password = 'Kata sandi minimal 6 karakter, contoh kombinasi huruf dan angka.';
@@ -67,17 +80,20 @@ export function AdminLockScreen({
     setIsProcessing(true);
     setFieldErrors({});
     setErrorMsg(null);
+    setShowProviderGuide(false);
     try {
-      const adminAccount = await createUserAccount({
+      const masterAccount = await bootstrapMasterWorkspace({
         username: cleanUser,
-        display_name: cleanDisplay || 'Admin Klinik',
+        displayName: cleanDisplay || 'Admin Master',
         password,
-        role: 'ADMIN',
-        is_active: true,
+        initialData: legacyLocalData,
       });
-      onCreateAdminAccount(adminAccount);
-    } catch {
-      setErrorMsg('Gagal menyimpan akun admin di browser ini.');
+      onMasterSetupSuccess(masterAccount);
+    } catch (err) {
+      if (isAuthProviderDisabledError(err)) {
+        setShowProviderGuide(true);
+      }
+      setErrorMsg(formatFirebaseAuthError(err));
     } finally {
       setIsProcessing(false);
     }
@@ -106,20 +122,65 @@ export function AdminLockScreen({
     setIsProcessing(true);
     setFieldErrors({});
     setErrorMsg(null);
+    setShowProviderGuide(false);
     try {
-      const result = await verifyAccountLogin(validPasswordAccounts, cleanUser, password);
-      if (!result.ok) {
-        setErrorMsg(result.reason);
-        passwordRef.current?.focus();
-        return;
+      const account = await loginWithUsernamePassword(cleanUser, password);
+      onLoginSuccess(account);
+    } catch (err) {
+      if (isAuthProviderDisabledError(err)) {
+        setShowProviderGuide(true);
       }
-      onLoginSuccess(result.account);
-    } catch {
-      setErrorMsg('Terjadi kesalahan saat memeriksa kata sandi.');
+      setErrorMsg(formatFirebaseAuthError(err));
+      passwordRef.current?.focus();
     } finally {
       setIsProcessing(false);
     }
   };
+
+  if (isInitialized === null) {
+    return (
+      <div className="flex min-h-screen items-center justify-center bg-neutral-50 px-4 py-8">
+        <div className="w-full max-w-md rounded-2xl border border-neutral-200 bg-white p-6 md:p-8">
+          <div className="flex items-center gap-3.5">
+            <img
+              src={CLINIC_LOGO_SRC}
+              alt={`Logo ${CLINIC_NAME}`}
+              className="h-14 w-14 shrink-0 rounded-full border border-neutral-200 object-cover"
+            />
+            <div>
+              <p className="text-sm font-semibold text-amber-800">{CLINIC_NAME}</p>
+              <h1 className="mt-0.5 text-xl font-semibold text-neutral-900">
+                Menyiapkan Koneksi Cloud
+              </h1>
+            </div>
+          </div>
+
+          {initError ? (
+            <div className="mt-5 space-y-3">
+              <div
+                role="alert"
+                className="rounded-xl border border-red-200 bg-red-50 p-3 text-sm text-red-800"
+              >
+                {initError}
+              </div>
+              <button
+                type="button"
+                onClick={onRetryInit}
+                className="min-h-[44px] w-full rounded-xl bg-amber-700 px-4 py-2 text-sm font-medium text-white hover:bg-amber-800 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-amber-700"
+              >
+                Coba Hubungkan Lagi
+              </button>
+            </div>
+          ) : (
+            <div className="mt-5 flex items-center gap-2.5 text-sm text-neutral-600">
+              <Loader2 className="h-4 w-4 animate-spin text-amber-700" />
+              <span>Memeriksa status akun master klinik…</span>
+            </div>
+          )}
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="flex min-h-screen items-center justify-center bg-neutral-50 px-4 py-8">
@@ -133,12 +194,12 @@ export function AdminLockScreen({
           <div>
             <p className="text-sm font-semibold text-amber-800">{CLINIC_NAME}</p>
             <h1 className="mt-0.5 text-2xl font-semibold text-neutral-900">
-              {isInitialSetup ? 'Atur Akun Admin Utama' : 'Masuk Aplikasi Klinik'}
+              {isInitialSetup ? 'Atur Akun Admin Master' : 'Masuk Aplikasi Klinik'}
             </h1>
             <p className="mt-1 text-sm text-neutral-600">
               {isInitialSetup
-                ? 'Buat akun Admin pertama untuk mengaktifkan database aplikasi.'
-                : 'Masukkan username dan kata sandi akun Admin atau Terapis.'}
+                ? 'Akun Admin Master ini dapat digunakan masuk dari berbagai browser dan perangkat.'
+                : 'Masukkan username dan kata sandi akun Admin Master, Admin, atau Terapis.'}
             </p>
           </div>
         </div>
@@ -149,6 +210,26 @@ export function AdminLockScreen({
             className="mt-5 rounded-xl border border-red-200 bg-red-50 p-3 text-sm text-red-800"
           >
             {errorMsg}
+          </div>
+        )}
+
+        {showProviderGuide && (
+          <div className="mt-4 rounded-xl border border-amber-200 bg-amber-50 p-3.5 text-sm text-amber-950">
+            <p className="font-semibold">Langkah Aktifkan Login Username/Kata Sandi:</p>
+            <ol className="mt-1.5 list-inside list-decimal space-y-1 text-xs text-amber-900">
+              <li>Buka halaman Sign-in providers di Firebase Console.</li>
+              <li>Pilih <strong>Email/Password</strong>, aktifkan tombol <strong>Enable</strong>, lalu klik <strong>Save</strong>.</li>
+              <li>Kembali ke halaman ini dan klik tombol masuk/simpan lagi.</li>
+            </ol>
+            <a
+              href={firebaseProvidersUrl}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="mt-2.5 inline-flex items-center gap-1.5 text-xs font-semibold text-amber-800 underline hover:text-amber-950"
+            >
+              <span>Buka Firebase Authentication Providers</span>
+              <ExternalLink className="h-3.5 w-3.5" />
+            </a>
           </div>
         )}
 
@@ -163,7 +244,7 @@ export function AdminLockScreen({
                 htmlFor="admin-display-name"
                 className="block text-sm font-medium text-neutral-800"
               >
-                Nama Tampilan Admin
+                Nama Tampilan Admin Master
               </label>
               <input
                 id="admin-display-name"
@@ -171,7 +252,7 @@ export function AdminLockScreen({
                 type="text"
                 value={displayName}
                 onChange={(e) => setDisplayName(e.target.value)}
-                placeholder="Contoh: Admin Klinik"
+                placeholder="Contoh: Admin Master Naomi"
                 className="mt-1.5 min-h-[44px] w-full rounded-xl border border-neutral-200 bg-white px-3.5 py-2 text-base text-neutral-900 placeholder:text-neutral-500 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-amber-700"
               />
             </div>
@@ -199,7 +280,7 @@ export function AdminLockScreen({
 
           <div>
             <label htmlFor="admin-password" className="block text-sm font-medium text-neutral-800">
-              {isInitialSetup ? 'Kata Sandi Baru' : 'Kata Sandi'}{' '}
+              {isInitialSetup ? 'Kata Sandi Master' : 'Kata Sandi'}{' '}
               <span className="text-red-700">*</span>
             </label>
             <div className="relative mt-1.5">
@@ -259,32 +340,20 @@ export function AdminLockScreen({
             className="min-h-[44px] w-full rounded-xl bg-amber-700 px-4 py-2.5 text-sm font-medium text-white hover:bg-amber-800 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-amber-700 disabled:opacity-60"
           >
             {isProcessing
-              ? 'Memproses…'
+              ? 'Menghubungkan…'
               : isInitialSetup
-                ? 'Simpan & Masuk'
+                ? 'Buat Akun Master & Masuk'
                 : 'Masuk'}
           </button>
         </form>
 
-        {!isInitialSetup ? (
-          <div className="mt-5 space-y-2 border-t border-neutral-200 pt-4">
-            <p className="text-xs text-neutral-600">
-              Pembuatan akun baru hanya tersedia melalui menu Manajemen Akun oleh Admin.
-            </p>
-            <button
-              type="button"
-              onClick={onRequestResetLock}
-              className="inline-flex min-h-[40px] items-center gap-1.5 text-sm font-medium text-neutral-600 hover:text-neutral-900 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-amber-700"
-            >
-              <RotateCcw className="h-4 w-4" />
-              <span>Lupa kata sandi? Reset akun & database lokal</span>
-            </button>
-          </div>
-        ) : (
-          <p className="mt-4 text-xs text-neutral-600">
-            Kata sandi disimpan sebagai hash SHA-256 di perangkat ini dengan database terpisah per akun.
+        <div className="mt-5 border-t border-neutral-200 pt-4">
+          <p className="text-xs text-neutral-600">
+            {isInitialSetup
+              ? 'Setelah akun Master diatur, semua browser akan memakai akun ini sebagai akses utama.'
+              : 'Pembuatan akun baru hanya tersedia melalui menu Manajemen Akun oleh Admin.'}
           </p>
-        )}
+        </div>
       </div>
     </div>
   );

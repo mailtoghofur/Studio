@@ -3,8 +3,8 @@
 Dokumen ini merangkum fitur dari PRD v1.0 beserta keputusan hasil klarifikasi pengguna.
 
 ## Keputusan Teknis & Produk
-- **Penyimpanan Data**: Menggunakan sistem database sederhana di browser (`localStorage`) yang tersimpan terpisah sesuai akun Admin pemilik (`klinik_db_<owner_account_id>`), dilengkapi cadangan/pulihkan JSON serta ekspor CSV (Reservasi, Layanan, Terapis, Pendapatan).
-- **Keamanan Akses**: Login menggunakan username dan kata sandi terenkripsi SHA-256 dengan garam acak di browser (tidak terhubung ke akun Google). Pembuatan akun baru (Terapis maupun Admin tambahan dengan database bersama atau database baru terpisah) hanya tersedia melalui menu **Manajemen Akun** oleh Admin.
+- **Penyimpanan Data**: Menggunakan database cloud Firestore (`workspaces/<workspaceId>`) yang tersinkron otomatis lintas browser dan perangkat serta mendukung ruang kerja terpisah sesuai akun Admin pemilik, dilengkapi cadangan/pulihkan JSON dan ekspor CSV (Reservasi, Layanan, Terapis, Pendapatan).
+- **Keamanan Akses**: Login menggunakan username dan kata sandi melalui Firebase Authentication (Email/Password dengan format internal `@naomi.klinik`, tidak tersambung ke akun Google). Tersedia satu akun **Admin Master** yang dapat diakses dari berbagai browser, serta pembuatan akun Terapis atau Admin tambahan hanya melalui menu **Manajemen Akun**.
 - **Operasional**: 7 hari seminggu (Senin–Minggu), pukul 10.00–21.00, jeda antarsesi 0 menit, kapasitas mengikuti jumlah terapis aktif.
 
 ## Daftar Fitur

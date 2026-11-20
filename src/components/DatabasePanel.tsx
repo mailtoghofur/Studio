@@ -70,10 +70,10 @@ export function DatabasePanel({
             </div>
             <div>
               <h1 className="text-xl font-semibold text-neutral-900 md:text-2xl">
-                Database Akun ({database.owner_username})
+                Database Cloud ({database.owner_username})
               </h1>
               <p className="mt-1 text-sm text-neutral-600">
-                Data terapis, layanan, dan reservasi tersimpan terpisah khusus untuk akun ini.
+                Data terapis, layanan, dan reservasi tersinkron otomatis di cloud untuk ruang kerja akun ini.
               </p>
             </div>
           </div>

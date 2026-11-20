@@ -1,0 +1,464 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // Global Safety Net (default deny)
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // === Primitives ===
+    function incoming() {
+      return request.resource.data;
+    }
+
+    function existing() {
+      return resource.data;
+    }
+
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isValidId(id) {
+      return id is string && id.size() >= 1 && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
+    }
+
+    function isValidDateStr(d) {
+      return d is string && d.size() == 10 && d.matches('^[0-9]{4}-[0-9]{2}-[0-9]{2}$');
+    }
+
+    function isValidTimeStr(t) {
+      return t is string && t.size() == 5 && t.matches('^[0-9]{2}:[0-9]{2}$');
+    }
+
+    function isAdminDoc() {
+      return isSignedIn() && exists(/databases/$(database)/documents/admins/$(request.auth.uid));
+    }
+
+    function callerUserExists() {
+      return isSignedIn() && exists(/databases/$(database)/documents/users/$(request.auth.uid));
+    }
+
+    function callerUser() {
+      return get(/databases/$(database)/documents/users/$(request.auth.uid)).data;
+    }
+
+    function isActiveCaller() {
+      return callerUserExists() && callerUser().is_active == true;
+    }
+
+    function isActiveAdmin() {
+      return isAdminDoc() && isActiveCaller() && callerUser().role == 'ADMIN';
+    }
+
+    function isWorkspaceAdmin(workspaceId) {
+      return isActiveAdmin() &&
+        exists(/databases/$(database)/documents/workspaces/$(workspaceId)) &&
+        request.auth.uid in get(/databases/$(database)/documents/workspaces/$(workspaceId)).data.adminUids;
+    }
+
+    function isWorkspaceMember(workspaceId) {
+      return isActiveCaller() &&
+        exists(/databases/$(database)/documents/workspaces/$(workspaceId)) &&
+        exists(/databases/$(database)/documents/workspaces/$(workspaceId)/members/$(request.auth.uid)) &&
+        get(/databases/$(database)/documents/workspaces/$(workspaceId)/members/$(request.auth.uid)).data.is_active == true;
+    }
+
+    // === Validation Blueprints ===
+    function isValidSystemMeta(data) {
+      return data.keys().hasAll(['initialized', 'masterUid', 'createdAt']) &&
+        data.keys().hasOnly(['initialized', 'masterUid', 'createdAt']) &&
+        data.initialized == true &&
+        isValidId(data.masterUid) &&
+        data.createdAt == request.time;
+    }
+
+    function isValidAdminRecord(data, adminId) {
+      return data.keys().hasAll(['uid', 'isMaster', 'workspaceId', 'createdAt']) &&
+        data.keys().hasOnly(['uid', 'isMaster', 'workspaceId', 'createdAt']) &&
+        data.uid == adminId &&
+        isValidId(data.uid) &&
+        data.isMaster is bool &&
+        isValidId(data.workspaceId) &&
+        data.createdAt == request.time;
+    }
+
+    function isValidUserProfile(data, userId) {
+      return data.keys().hasAll([
+          'uid', 'username', 'display_name', 'role', 'workspace_id',
+          'therapist_id', 'is_active', 'is_master', 'created_by_uid',
+          'createdAt', 'updatedAt'
+        ]) &&
+        data.keys().hasOnly([
+          'uid', 'username', 'display_name', 'role', 'workspace_id',
+          'therapist_id', 'is_active', 'is_master', 'created_by_uid',
+          'createdAt', 'updatedAt'
+        ]) &&
+        data.uid == userId &&
+        isValidId(data.uid) &&
+        data.username is string && data.username.size() >= 3 && data.username.size() <= 50 &&
+        data.username.matches('^[a-zA-Z0-9._\\-]+$') &&
+        data.display_name is string && data.display_name.size() >= 1 && data.display_name.size() <= 80 &&
+        (data.role == 'ADMIN' || data.role == 'THERAPIST') &&
+        isValidId(data.workspace_id) &&
+        data.therapist_id is string && data.therapist_id.size() <= 64 &&
+        data.is_active is bool &&
+        data.is_master is bool &&
+        isValidId(data.created_by_uid) &&
+        data.createdAt is timestamp &&
+        data.updatedAt is timestamp;
+    }
+
+    function isValidWorkspace(data, workspaceId) {
+      return data.keys().hasAll([
+          'workspaceId', 'ownerUid', 'ownerUsername', 'clinicName',
+          'adminUids', 'createdAt', 'updatedAt'
+        ]) &&
+        data.keys().hasOnly([
+          'workspaceId', 'ownerUid', 'ownerUsername', 'clinicName',
+          'adminUids', 'createdAt', 'updatedAt'
+        ]) &&
+        data.workspaceId == workspaceId &&
+        isValidId(data.workspaceId) &&
+        isValidId(data.ownerUid) &&
+        data.ownerUsername is string && data.ownerUsername.size() >= 3 && data.ownerUsername.size() <= 50 &&
+        data.clinicName is string && data.clinicName.size() >= 1 && data.clinicName.size() <= 100 &&
+        data.adminUids is list && data.adminUids.size() >= 1 && data.adminUids.size() <= 10 &&
+        data.adminUids[0] is string &&
+        data.ownerUid in data.adminUids &&
+        data.createdAt is timestamp &&
+        data.updatedAt is timestamp;
+    }
+
+    function isValidWorkspaceMember(data, memberId) {
+      return data.keys().hasAll([
+          'uid', 'owner_uid', 'admin_uids', 'username', 'display_name',
+          'role', 'therapist_id', 'is_active', 'is_master', 'updatedAt'
+        ]) &&
+        data.keys().hasOnly([
+          'uid', 'owner_uid', 'admin_uids', 'username', 'display_name',
+          'role', 'therapist_id', 'is_active', 'is_master', 'updatedAt'
+        ]) &&
+        data.uid == memberId &&
+        isValidId(data.uid) &&
+        isValidId(data.owner_uid) &&
+        data.admin_uids is list && data.admin_uids.size() >= 1 && data.admin_uids.size() <= 10 &&
+        data.admin_uids[0] is string &&
+        data.username is string && data.username.size() >= 3 && data.username.size() <= 50 &&
+        data.display_name is string && data.display_name.size() >= 1 && data.display_name.size() <= 80 &&
+        (data.role == 'ADMIN' || data.role == 'THERAPIST') &&
+        data.therapist_id is string && data.therapist_id.size() <= 64 &&
+        data.is_active is bool &&
+        data.is_master is bool &&
+        data.updatedAt is timestamp;
+    }
+
+    function isValidTherapistsCatalog(data) {
+      return data.keys().hasAll(['ownerUid', 'items', 'updatedAt']) &&
+        data.keys().hasOnly(['ownerUid', 'items', 'updatedAt']) &&
+        isValidId(data.ownerUid) &&
+        data.items is list && data.items.size() <= 50 &&
+        (data.items.size() == 0 || data.items[0] is map) &&
+        data.updatedAt == request.time;
+    }
+
+    function isValidServicesCatalog(data) {
+      return data.keys().hasAll(['ownerUid', 'items', 'updatedAt']) &&
+        data.keys().hasOnly(['ownerUid', 'items', 'updatedAt']) &&
+        isValidId(data.ownerUid) &&
+        data.items is list && data.items.size() <= 100 &&
+        (data.items.size() == 0 || data.items[0] is map) &&
+        data.updatedAt == request.time;
+    }
+
+    function isValidBooking(data, bookingId, workspaceId) {
+      return data.keys().hasAll([
+          'booking_id', 'workspace_id', 'owner_uid', 'admin_uids', 'therapist_uid',
+          'patient_name', 'patient_phone', 'service_id', 'therapist_id',
+          'booking_date', 'start_time', 'end_time', 'location_type',
+          'patient_address', 'notes', 'status', 'createdAt', 'updatedAt'
+        ]) &&
+        data.keys().hasOnly([
+          'booking_id', 'workspace_id', 'owner_uid', 'admin_uids', 'therapist_uid',
+          'patient_name', 'patient_phone', 'service_id', 'therapist_id',
+          'booking_date', 'start_time', 'end_time', 'location_type',
+          'patient_address', 'notes', 'status', 'createdAt', 'updatedAt'
+        ]) &&
+        data.booking_id == bookingId &&
+        data.workspace_id == workspaceId &&
+        isValidId(data.owner_uid) &&
+        data.admin_uids is list && data.admin_uids.size() >= 1 && data.admin_uids.size() <= 10 &&
+        data.admin_uids[0] is string &&
+        data.therapist_uid is string && data.therapist_uid.size() <= 128 &&
+        data.patient_name is string && data.patient_name.size() >= 1 && data.patient_name.size() <= 120 &&
+        data.patient_phone is string && data.patient_phone.size() >= 8 && data.patient_phone.size() <= 20 &&
+        data.service_id is string && data.service_id.size() >= 1 && data.service_id.size() <= 64 &&
+        data.therapist_id is string && data.therapist_id.size() >= 1 && data.therapist_id.size() <= 64 &&
+        isValidDateStr(data.booking_date) &&
+        isValidTimeStr(data.start_time) &&
+        isValidTimeStr(data.end_time) &&
+        (data.location_type == 'CLINIC' || data.location_type == 'HOME_SERVICE') &&
+        data.patient_address is string && data.patient_address.size() <= 300 &&
+        data.notes is string && data.notes.size() <= 400 &&
+        (data.status == 'SCHEDULED' || data.status == 'COMPLETED' || data.status == 'CANCELLED') &&
+        data.createdAt is timestamp &&
+        data.updatedAt is timestamp;
+    }
+
+    // === Collections ===
+
+    // System Initialization Flag (Public single-doc get ONLY for meta, zero PII)
+    match /system/{docId} {
+      allow get: if docId == 'meta';
+      allow list: if false;
+      allow create: if isSignedIn() &&
+        docId == 'meta' &&
+        !exists(/databases/$(database)/documents/system/meta) &&
+        isValidSystemMeta(incoming()) &&
+        incoming().masterUid == request.auth.uid &&
+        existsAfter(/databases/$(database)/documents/admins/$(request.auth.uid)) &&
+        existsAfter(/databases/$(database)/documents/users/$(request.auth.uid));
+      allow update, delete: if false;
+    }
+
+    // Trusted Admin Registry
+    match /admins/{adminId} {
+      allow get: if isSignedIn() && isValidId(adminId) && (request.auth.uid == adminId || isActiveAdmin());
+      allow list: if false;
+      allow create: if isSignedIn() &&
+        isValidId(adminId) &&
+        isValidAdminRecord(incoming(), adminId) &&
+        (
+          (
+            !exists(/databases/$(database)/documents/system/meta) &&
+            existsAfter(/databases/$(database)/documents/system/meta) &&
+            adminId == request.auth.uid &&
+            incoming().isMaster == true
+          ) ||
+          (
+            isActiveAdmin() &&
+            incoming().isMaster == false &&
+            existsAfter(/databases/$(database)/documents/users/$(adminId))
+          )
+        );
+      allow update: if false;
+      allow delete: if isActiveAdmin() && isValidId(adminId) && adminId != request.auth.uid && existing().isMaster == false;
+    }
+
+    // User Profiles & Roles (no PII)
+    match /users/{userId} {
+      allow get: if isSignedIn() && isValidId(userId) && (
+        request.auth.uid == userId ||
+        (isActiveAdmin() && (existing().workspace_id == callerUser().workspace_id || existing().created_by_uid == request.auth.uid))
+      );
+      allow list: if isSignedIn() && (
+        resource.data.created_by_uid == request.auth.uid ||
+        resource.data.uid == request.auth.uid
+      );
+      allow create: if isSignedIn() &&
+        isValidId(userId) &&
+        isValidUserProfile(incoming(), userId) &&
+        incoming().createdAt == request.time &&
+        incoming().updatedAt == request.time &&
+        (
+          (
+            !exists(/databases/$(database)/documents/system/meta) &&
+            existsAfter(/databases/$(database)/documents/system/meta) &&
+            userId == request.auth.uid &&
+            incoming().role == 'ADMIN' &&
+            incoming().is_master == true &&
+            incoming().is_active == true &&
+            incoming().created_by_uid == request.auth.uid
+          ) ||
+          (
+            isActiveAdmin() &&
+            incoming().is_master == false &&
+            incoming().created_by_uid == request.auth.uid
+          )
+        );
+      allow update: if isSignedIn() &&
+        isValidId(userId) &&
+        isValidUserProfile(incoming(), userId) &&
+        incoming().uid == existing().uid &&
+        incoming().createdAt == existing().createdAt &&
+        incoming().created_by_uid == existing().created_by_uid &&
+        incoming().is_master == existing().is_master &&
+        incoming().updatedAt == request.time &&
+        (
+          (
+            request.auth.uid == userId &&
+            incoming().diff(existing()).affectedKeys().hasOnly(['display_name', 'updatedAt'])
+          ) ||
+          (
+            isActiveAdmin() &&
+            (existing().workspace_id == callerUser().workspace_id || existing().created_by_uid == request.auth.uid) &&
+            incoming().diff(existing()).affectedKeys().hasOnly(['display_name', 'is_active', 'therapist_id', 'updatedAt'])
+          )
+        );
+      allow delete: if isActiveAdmin() &&
+        isValidId(userId) &&
+        userId != request.auth.uid &&
+        existing().is_master == false &&
+        (existing().workspace_id == callerUser().workspace_id || existing().created_by_uid == request.auth.uid);
+    }
+
+    // Workspaces (Each clinic database)
+    match /workspaces/{workspaceId} {
+      allow get: if isSignedIn() && isValidId(workspaceId) && (
+        request.auth.uid in existing().adminUids ||
+        exists(/databases/$(database)/documents/workspaces/$(workspaceId)/members/$(request.auth.uid))
+      );
+      allow list: if false;
+      allow create: if isSignedIn() &&
+        isValidId(workspaceId) &&
+        isValidWorkspace(incoming(), workspaceId) &&
+        incoming().createdAt == request.time &&
+        incoming().updatedAt == request.time &&
+        (
+          (
+            !exists(/databases/$(database)/documents/system/meta) &&
+            existsAfter(/databases/$(database)/documents/system/meta) &&
+            incoming().ownerUid == request.auth.uid
+          ) ||
+          (
+            isActiveAdmin() &&
+            existsAfter(/databases/$(database)/documents/users/$(incoming().ownerUid))
+          )
+        );
+      allow update: if isSignedIn() &&
+        isValidId(workspaceId) &&
+        isWorkspaceAdmin(workspaceId) &&
+        isValidWorkspace(incoming(), workspaceId) &&
+        incoming().workspaceId == existing().workspaceId &&
+        incoming().ownerUid == existing().ownerUid &&
+        incoming().createdAt == existing().createdAt &&
+        incoming().updatedAt == request.time &&
+        incoming().diff(existing()).affectedKeys().hasOnly(['ownerUsername', 'clinicName', 'adminUids', 'updatedAt']);
+      allow delete: if isActiveAdmin() &&
+        isValidId(workspaceId) &&
+        existing().ownerUid != request.auth.uid &&
+        userDoc().workspace_id != workspaceId;
+
+      // Workspace Members subcollection (Master Gate)
+      match /members/{memberId} {
+        allow get: if isSignedIn() && isValidId(workspaceId) && isValidId(memberId) &&
+          exists(/databases/$(database)/documents/workspaces/$(workspaceId)) &&
+          (request.auth.uid == memberId || isWorkspaceAdmin(workspaceId));
+        allow list: if isSignedIn() && (
+          resource.data.owner_uid == request.auth.uid ||
+          resource.data.uid == request.auth.uid ||
+          request.auth.uid in resource.data.admin_uids
+        );
+        allow create: if isSignedIn() && isValidId(workspaceId) && isValidId(memberId) &&
+          isValidWorkspaceMember(incoming(), memberId) &&
+          incoming().updatedAt == request.time &&
+          (
+            (
+              !exists(/databases/$(database)/documents/system/meta) &&
+              existsAfter(/databases/$(database)/documents/workspaces/$(workspaceId)) &&
+              memberId == request.auth.uid &&
+              incoming().owner_uid == request.auth.uid &&
+              incoming().is_master == true
+            ) ||
+            (
+              isActiveAdmin() &&
+              incoming().is_master == false &&
+              (exists(/databases/$(database)/documents/workspaces/$(workspaceId)) || existsAfter(/databases/$(database)/documents/workspaces/$(workspaceId)))
+            )
+          );
+        allow update: if isSignedIn() && isValidId(workspaceId) && isValidId(memberId) &&
+          isWorkspaceAdmin(workspaceId) &&
+          isValidWorkspaceMember(incoming(), memberId) &&
+          incoming().uid == existing().uid &&
+          incoming().owner_uid == existing().owner_uid &&
+          incoming().is_master == existing().is_master &&
+          incoming().updatedAt == request.time &&
+          incoming().diff(existing()).affectedKeys().hasOnly(['display_name', 'is_active', 'therapist_id', 'admin_uids', 'updatedAt']);
+        allow delete: if isWorkspaceAdmin(workspaceId) && isValidId(workspaceId) && isValidId(memberId) &&
+          memberId != request.auth.uid &&
+          existing().is_master == false;
+      }
+
+      // Catalogs: therapists & services (Single-doc get/create/update, no list)
+      match /config/{configId} {
+        allow get: if isSignedIn() && isValidId(workspaceId) &&
+          (configId == 'therapists' || configId == 'services') &&
+          isWorkspaceMember(workspaceId);
+        allow list: if false;
+        allow create: if isSignedIn() && isValidId(workspaceId) &&
+          (
+            (configId == 'therapists' && isValidTherapistsCatalog(incoming())) ||
+            (configId == 'services' && isValidServicesCatalog(incoming()))
+          ) &&
+          (
+            (
+              !exists(/databases/$(database)/documents/system/meta) &&
+              existsAfter(/databases/$(database)/documents/workspaces/$(workspaceId)) &&
+              incoming().ownerUid == request.auth.uid
+            ) ||
+            (
+              isActiveAdmin() &&
+              (exists(/databases/$(database)/documents/workspaces/$(workspaceId)) || existsAfter(/databases/$(database)/documents/workspaces/$(workspaceId)))
+            )
+          );
+        allow update: if isSignedIn() && isValidId(workspaceId) &&
+          isWorkspaceAdmin(workspaceId) &&
+          incoming().ownerUid == existing().ownerUid &&
+          (
+            (configId == 'therapists' && isValidTherapistsCatalog(incoming())) ||
+            (configId == 'services' && isValidServicesCatalog(incoming()))
+          ) &&
+          incoming().diff(existing()).affectedKeys().hasOnly(['items', 'updatedAt']);
+        allow delete: if false;
+      }
+
+      // Bookings subcollection (Contains patient PII)
+      match /bookings/{bookingId} {
+        allow get: if isSignedIn() && isValidId(workspaceId) && isValidId(bookingId) &&
+          exists(/databases/$(database)/documents/workspaces/$(workspaceId)) &&
+          (
+            isWorkspaceAdmin(workspaceId) ||
+            (isWorkspaceMember(workspaceId) && existing().therapist_uid == request.auth.uid)
+          );
+        allow list: if isSignedIn() && (
+          resource.data.owner_uid == request.auth.uid ||
+          resource.data.therapist_uid == request.auth.uid ||
+          request.auth.uid in resource.data.admin_uids
+        );
+        allow create: if isSignedIn() && isValidId(workspaceId) && isValidId(bookingId) &&
+          isWorkspaceAdmin(workspaceId) &&
+          isValidBooking(incoming(), bookingId, workspaceId) &&
+          incoming().createdAt == request.time &&
+          incoming().updatedAt == request.time &&
+          incoming().owner_uid == get(/databases/$(database)/documents/workspaces/$(workspaceId)).data.ownerUid;
+        allow update: if isSignedIn() && isValidId(workspaceId) && isValidId(bookingId) &&
+          exists(/databases/$(database)/documents/workspaces/$(workspaceId)) &&
+          isValidBooking(incoming(), bookingId, workspaceId) &&
+          incoming().booking_id == existing().booking_id &&
+          incoming().workspace_id == existing().workspace_id &&
+          incoming().owner_uid == existing().owner_uid &&
+          incoming().createdAt == existing().createdAt &&
+          incoming().updatedAt == request.time &&
+          (
+            (
+              isWorkspaceAdmin(workspaceId) &&
+              incoming().diff(existing()).affectedKeys().hasOnly([
+                'patient_name', 'patient_phone', 'service_id', 'therapist_id',
+                'therapist_uid', 'admin_uids', 'booking_date', 'start_time',
+                'end_time', 'location_type', 'patient_address', 'notes',
+                'status', 'updatedAt'
+              ])
+            ) ||
+            (
+              isWorkspaceMember(workspaceId) &&
+              existing().therapist_uid == request.auth.uid &&
+              existing().status == 'SCHEDULED' &&
+              incoming().status == 'COMPLETED' &&
+              incoming().diff(existing()).affectedKeys().hasOnly(['status', 'updatedAt'])
+            )
+          );
+        allow delete: if isWorkspaceAdmin(workspaceId) && isValidId(workspaceId) && isValidId(bookingId);
+      }
+    }
+  }
+}
