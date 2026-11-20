@@ -119,7 +119,7 @@ export function AdminLockScreen({
             label={isGoogleLoggingIn ? 'Menghubungkan ke Google…' : 'Sign in with Google'}
           />
           <p className="mt-2.5 text-xs text-neutral-600">
-            Login akun klinik sekaligus mengaktifkan akses sinkronisasi Google Sheets Anda.
+            Setiap kali masuk, aplikasi melakukan sinkronisasi langsung dengan akun Google dan Google Sheets Anda.
           </p>
         </div>
 

@@ -1,10 +1,12 @@
-// Autentikasi Google melalui Firebase Auth di browser dan penyimpanan token akses hanya di memori.
+// Autentikasi Google melalui Firebase Auth tanpa sesi permanen (inMemoryPersistence) sehingga setiap sesi baru wajib masuk dan sinkronisasi ulang via Google.
 
 import { initializeApp } from 'firebase/app';
 import {
   getAuth,
   GoogleAuthProvider,
+  inMemoryPersistence,
   onAuthStateChanged,
+  setPersistence,
   signInWithPopup,
   type User,
 } from 'firebase/auth';
@@ -13,6 +15,7 @@ import { OAUTH_SCOPES } from '../config';
 
 const app = initializeApp(firebaseConfig);
 const auth = getAuth(app);
+const persistenceReady = setPersistence(auth, inMemoryPersistence).catch(() => undefined);
 
 let isSigningIn = false;
 let cachedAccessToken: string | null = null;
@@ -39,16 +42,17 @@ export function initAuth(
   onAuthSignedOut?: () => void
 ) {
   return onAuthStateChanged(auth, (user: User | null) => {
-    if (user) {
-      if (cachedAccessToken) {
-        onAuthSuccess?.(user, cachedAccessToken);
-      } else if (!isSigningIn) {
-        cachedAccessToken = null;
-        onAuthNeedsToken?.(user);
-      }
-    } else {
+    if (user && cachedAccessToken) {
+      onAuthSuccess?.(user, cachedAccessToken);
+      return;
+    }
+    if (!isSigningIn) {
       cachedAccessToken = null;
-      onAuthSignedOut?.();
+      if (user) {
+        onAuthNeedsToken?.(user);
+      } else {
+        onAuthSignedOut?.();
+      }
     }
   });
 }
@@ -59,6 +63,7 @@ export async function googleSignIn(options?: {
 }): Promise<{ user: User; accessToken: string }> {
   try {
     isSigningIn = true;
+    await persistenceReady;
     const provider = buildProvider(options);
     const result = await signInWithPopup(auth, provider);
     const credential = GoogleAuthProvider.credentialFromResult(result);

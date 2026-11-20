@@ -318,28 +318,11 @@ export default function App() {
         }
       },
       (rememberedUser) => {
-        // Sesi Firebase masih diingat setelah refresh; pulihkan login aplikasi jika email Google terdaftar
-        setUser(rememberedUser);
+        // Sesi login tidak dibuat permanen; pengguna tetap masuk lewat tombol Sign in with Google tiap kali membuka aplikasi
+        setUser(null);
         setIsAuthenticated(false);
         if (rememberedUser.email) {
-          setConnectedGoogleEmail(rememberedUser.email);
-          if (!currentAccountRef.current) {
-            const resolved = resolveGoogleLogin(
-              accountsRef.current,
-              rememberedUser.email,
-              rememberedUser.displayName
-            );
-            if (resolved.ok) {
-              if (resolved.isAutoProvisioned) {
-                setAccounts(resolved.nextAccounts);
-              }
-              setCurrentAccount(resolved.account);
-              setLoginError(null);
-            } else {
-              setLoginError(resolved.reason);
-              void logout();
-            }
-          }
+          setConnectedGoogleEmail((prev) => prev ?? rememberedUser.email);
         }
       },
       () => {
