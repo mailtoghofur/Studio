@@ -1,9 +1,9 @@
-// Manajemen akun login untuk Admin dan Terapis (FT-07).
+// Manajemen akun login Google maupun akun lokal untuk Admin dan Terapis (FT-07).
 
-import { KeyRound, Plus, ShieldCheck, Trash2, UserCheck, UserX, X } from 'lucide-react';
+import { KeyRound, Mail, Plus, ShieldCheck, Trash2, UserCheck, UserX, X } from 'lucide-react';
 import { useMemo, useRef, useState } from 'react';
-import { createUserAccount, updateAccountPassword } from '../lib/adminLock';
-import type { Therapist, UserAccount, UserRole } from '../lib/types';
+import { createGoogleAccount, createUserAccount, updateAccountPassword } from '../lib/adminLock';
+import type { AuthMethod, Therapist, UserAccount, UserRole } from '../lib/types';
 
 interface AccountsViewProps {
   accounts: UserAccount[];
@@ -13,6 +13,8 @@ interface AccountsViewProps {
   onUpdateAccount: (account: UserAccount) => void;
   onRequestDeleteAccount: (account: UserAccount) => void;
 }
+
+const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
 export function AccountsView({
   accounts,
@@ -28,13 +30,16 @@ export function AccountsView({
   );
 
   const [createOpen, setCreateOpen] = useState(false);
+  const [authMethod, setAuthMethod] = useState<AuthMethod>('GOOGLE');
   const [role, setRole] = useState<UserRole>('THERAPIST');
   const [therapistId, setTherapistId] = useState(therapists[0]?.therapist_id ?? '');
   const [displayName, setDisplayName] = useState('');
+  const [googleEmail, setGoogleEmail] = useState('');
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
   const [formErrors, setFormErrors] = useState<{
+    googleEmail?: string;
     username?: string;
     displayName?: string;
     therapistId?: string;
@@ -43,12 +48,14 @@ export function AccountsView({
   }>({});
   const [isSaving, setIsSaving] = useState(false);
 
-  const [passwordModalAccount, setPasswordModalAccount] = useState<UserAccount | null>(null);
+  const [editModalAccount, setEditModalAccount] = useState<UserAccount | null>(null);
+  const [editGoogleEmail, setEditGoogleEmail] = useState('');
   const [editUsername, setEditUsername] = useState('');
   const [nextPassword, setNextPassword] = useState('');
   const [nextConfirm, setNextConfirm] = useState('');
-  const [pwError, setPwError] = useState<string | null>(null);
+  const [editError, setEditError] = useState<string | null>(null);
 
+  const googleEmailRef = useRef<HTMLInputElement>(null);
   const usernameRef = useRef<HTMLInputElement>(null);
   const displayNameRef = useRef<HTMLInputElement>(null);
   const passwordRef = useRef<HTMLInputElement>(null);
@@ -63,9 +70,11 @@ export function AccountsView({
       (t) => !accounts.some((a) => a.role === 'THERAPIST' && a.therapist_id === t.therapist_id)
     );
     const chosen = unassigned ?? therapists[0];
+    setAuthMethod('GOOGLE');
     setRole('THERAPIST');
     setTherapistId(chosen?.therapist_id ?? '');
     setDisplayName(chosen?.name ?? '');
+    setGoogleEmail('');
     setUsername('');
     setPassword('');
     setConfirmPassword('');
@@ -75,6 +84,7 @@ export function AccountsView({
 
   const handleCreateSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    const cleanEmail = googleEmail.trim().toLowerCase();
     const cleanUser = username.trim();
     const cleanDisplay =
       role === 'THERAPIST'
@@ -82,13 +92,6 @@ export function AccountsView({
         : displayName.trim();
 
     const errs: typeof formErrors = {};
-    if (cleanUser.length < 3 || /\s/.test(cleanUser)) {
-      errs.username = 'Username minimal 3 karakter tanpa spasi, contoh: sari.terapis.';
-    } else if (
-      accounts.some((a) => a.username.trim().toLowerCase() === cleanUser.toLowerCase())
-    ) {
-      errs.username = 'Username sudah terdaftar. Gunakan username lain.';
-    }
 
     if (role === 'ADMIN' && !cleanDisplay) {
       errs.displayName = 'Isi nama tampilan admin, contoh: Admin Resepsionis.';
@@ -96,17 +99,36 @@ export function AccountsView({
     if (role === 'THERAPIST' && !therapistId) {
       errs.therapistId = 'Pilih terapis yang akan dihubungkan ke akun ini.';
     }
-    if (password.length < 6) {
-      errs.password = 'Kata sandi minimal 6 karakter.';
-    }
-    if (confirmPassword !== password) {
-      errs.confirmPassword = 'Konfirmasi kata sandi harus sama dengan kata sandi baru.';
+
+    if (authMethod === 'GOOGLE') {
+      if (!EMAIL_REGEX.test(cleanEmail)) {
+        errs.googleEmail = 'Masukkan email Google yang valid, contoh: terapis@gmail.com.';
+      } else if (
+        accounts.some((a) => a.google_email?.trim().toLowerCase() === cleanEmail)
+      ) {
+        errs.googleEmail = 'Email Google tersebut sudah terdaftar pada akun lain.';
+      }
+    } else {
+      if (cleanUser.length < 3 || /\s/.test(cleanUser)) {
+        errs.username = 'Username minimal 3 karakter tanpa spasi, contoh: sari.terapis.';
+      } else if (
+        accounts.some((a) => a.username.trim().toLowerCase() === cleanUser.toLowerCase())
+      ) {
+        errs.username = 'Username sudah terdaftar. Gunakan username lain.';
+      }
+      if (password.length < 6) {
+        errs.password = 'Kata sandi minimal 6 karakter.';
+      }
+      if (confirmPassword !== password) {
+        errs.confirmPassword = 'Konfirmasi kata sandi harus sama dengan kata sandi baru.';
+      }
     }
 
     if (Object.keys(errs).length > 0) {
       setFormErrors(errs);
-      if (errs.username) usernameRef.current?.focus();
-      else if (errs.displayName) displayNameRef.current?.focus();
+      if (errs.displayName) displayNameRef.current?.focus();
+      else if (errs.googleEmail) googleEmailRef.current?.focus();
+      else if (errs.username) usernameRef.current?.focus();
       else if (errs.password) passwordRef.current?.focus();
       else if (errs.confirmPassword) confirmRef.current?.focus();
       return;
@@ -114,14 +136,23 @@ export function AccountsView({
 
     setIsSaving(true);
     try {
-      const created = await createUserAccount({
-        username: cleanUser,
-        display_name: cleanDisplay || cleanUser,
-        password,
-        role,
-        therapist_id: role === 'THERAPIST' ? therapistId : undefined,
-        is_active: true,
-      });
+      const created =
+        authMethod === 'GOOGLE'
+          ? createGoogleAccount({
+              google_email: cleanEmail,
+              display_name: cleanDisplay || cleanEmail,
+              role,
+              therapist_id: role === 'THERAPIST' ? therapistId : undefined,
+              is_active: true,
+            })
+          : await createUserAccount({
+              username: cleanUser,
+              display_name: cleanDisplay || cleanUser,
+              password,
+              role,
+              therapist_id: role === 'THERAPIST' ? therapistId : undefined,
+              is_active: true,
+            });
       setCreateOpen(false);
       onCreateAccount(created);
     } finally {
@@ -129,49 +160,75 @@ export function AccountsView({
     }
   };
 
-  const openPasswordModal = (account: UserAccount) => {
-    setPasswordModalAccount(account);
+  const openEditModal = (account: UserAccount) => {
+    setEditModalAccount(account);
+    setEditGoogleEmail(account.google_email ?? '');
     setEditUsername(account.username);
     setNextPassword('');
     setNextConfirm('');
-    setPwError(null);
+    setEditError(null);
   };
 
-  const handlePasswordUpdate = async (e: React.FormEvent) => {
+  const handleEditSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!passwordModalAccount) return;
+    if (!editModalAccount) return;
 
+    const cleanEmail = editGoogleEmail.trim().toLowerCase();
     const cleanUser = editUsername.trim();
-    if (cleanUser.length < 3 || /\s/.test(cleanUser)) {
-      setPwError('Username minimal 3 karakter tanpa spasi, contoh: admin.');
-      return;
+
+    if (cleanEmail) {
+      if (!EMAIL_REGEX.test(cleanEmail)) {
+        setEditError('Masukkan email Google yang valid, contoh: nama@gmail.com.');
+        return;
+      }
+      const duplicateEmail = accounts.some(
+        (a) =>
+          a.account_id !== editModalAccount.account_id &&
+          a.google_email?.trim().toLowerCase() === cleanEmail
+      );
+      if (duplicateEmail) {
+        setEditError('Email Google tersebut sudah digunakan akun lain.');
+        return;
+      }
     }
-    const duplicate = accounts.some(
-      (a) =>
-        a.account_id !== passwordModalAccount.account_id &&
-        a.username.trim().toLowerCase() === cleanUser.toLowerCase()
-    );
-    if (duplicate) {
-      setPwError('Username tersebut sudah digunakan akun lain.');
-      return;
+
+    if (!cleanEmail && (!editModalAccount.hash || !nextPassword)) {
+      if (cleanUser.length < 3 || /\s/.test(cleanUser)) {
+        setEditError('Isi Email Google atau Username lokal minimal 3 karakter tanpa spasi.');
+        return;
+      }
     }
-    if (nextPassword.length < 6) {
-      setPwError('Kata sandi baru minimal 6 karakter.');
-      return;
-    }
-    if (nextConfirm !== nextPassword) {
-      setPwError('Konfirmasi kata sandi tidak cocok.');
-      return;
+
+    if (nextPassword) {
+      if (nextPassword.length < 6) {
+        setEditError('Kata sandi baru minimal 6 karakter.');
+        return;
+      }
+      if (nextConfirm !== nextPassword) {
+        setEditError('Konfirmasi kata sandi tidak cocok.');
+        return;
+      }
     }
 
     setIsSaving(true);
     try {
-      const updated = await updateAccountPassword(
-        passwordModalAccount,
-        nextPassword,
-        cleanUser
-      );
-      setPasswordModalAccount(null);
+      let updated: UserAccount = {
+        ...editModalAccount,
+        auth_method: cleanEmail ? 'GOOGLE' : editModalAccount.auth_method ?? 'LOCAL',
+        google_email: cleanEmail || undefined,
+        username: cleanEmail || cleanUser || editModalAccount.username,
+        updated_at: new Date().toISOString(),
+      };
+
+      if (nextPassword) {
+        updated = await updateAccountPassword(
+          updated,
+          nextPassword,
+          cleanUser || updated.username
+        );
+      }
+
+      setEditModalAccount(null);
       onUpdateAccount(updated);
     } finally {
       setIsSaving(false);
@@ -186,7 +243,7 @@ export function AccountsView({
             Manajemen Akun Admin & Terapis
           </h1>
           <p className="mt-1 text-sm text-neutral-600">
-            Buat dan kelola akun login untuk admin klinik maupun masing-masing terapis.
+            Daftarkan email Google atau akun lokal untuk Admin dan Terapis yang boleh masuk ke aplikasi.
           </p>
         </div>
 
@@ -201,11 +258,11 @@ export function AccountsView({
       </div>
 
       <div className="mt-6 overflow-x-auto rounded-xl border border-neutral-200">
-        <table className="w-full min-w-[660px] border-collapse text-left text-sm">
+        <table className="w-full min-w-[680px] border-collapse text-left text-sm">
           <thead>
             <tr className="border-b border-neutral-200 bg-neutral-50 text-neutral-700">
               <th className="px-4 py-3 font-semibold">Nama & Terapis</th>
-              <th className="px-4 py-3 font-semibold">Username</th>
+              <th className="px-4 py-3 font-semibold">Email Google / Username</th>
               <th className="px-4 py-3 font-semibold">Peran</th>
               <th className="px-4 py-3 font-semibold">Status</th>
               <th className="px-4 py-3 text-right font-semibold">Aksi</th>
@@ -237,7 +294,14 @@ export function AccountsView({
                       </p>
                     )}
                   </td>
-                  <td className="px-4 py-3 font-medium text-neutral-800">{acc.username}</td>
+                  <td className="px-4 py-3">
+                    <p className="font-medium text-neutral-800">
+                      {acc.google_email || acc.username}
+                    </p>
+                    <p className="text-xs text-neutral-600">
+                      {acc.google_email ? 'Login Google' : 'Login Lokal'}
+                    </p>
+                  </td>
                   <td className="px-4 py-3 text-neutral-700">
                     {acc.role === 'ADMIN' ? (
                       <span className="inline-flex items-center gap-1.5 font-medium text-amber-800">
@@ -266,11 +330,15 @@ export function AccountsView({
                     <div className="flex justify-end gap-2">
                       <button
                         type="button"
-                        onClick={() => openPasswordModal(acc)}
+                        onClick={() => openEditModal(acc)}
                         className="inline-flex min-h-[36px] items-center gap-1.5 rounded-lg border border-neutral-200 bg-white px-3 py-1 text-sm font-medium text-neutral-800 hover:bg-neutral-50 whitespace-nowrap"
                       >
-                        <KeyRound className="h-3.5 w-3.5" />
-                        <span>Ubah Sandi</span>
+                        {acc.google_email ? (
+                          <Mail className="h-3.5 w-3.5" />
+                        ) : (
+                          <KeyRound className="h-3.5 w-3.5" />
+                        )}
+                        <span>Kelola Akses</span>
                       </button>
 
                       <button
@@ -297,7 +365,7 @@ export function AccountsView({
                         type="button"
                         disabled={isSelf || isLastActiveAdmin}
                         onClick={() => onRequestDeleteAccount(acc)}
-                        aria-label={`Hapus akun ${acc.username}`}
+                        aria-label={`Hapus akun ${acc.google_email || acc.username}`}
                         className="inline-flex min-h-[36px] items-center justify-center rounded-lg border border-red-200 bg-red-50 px-2.5 py-1 text-sm font-medium text-red-800 hover:bg-red-100 disabled:cursor-not-allowed disabled:opacity-40"
                       >
                         <Trash2 className="h-4 w-4" />
@@ -335,6 +403,37 @@ export function AccountsView({
             </div>
 
             <form onSubmit={handleCreateSubmit} noValidate className="mt-5 space-y-4">
+              <div>
+                <span className="block text-sm font-medium text-neutral-800">Metode Masuk</span>
+                <div className="mt-2 grid grid-cols-2 gap-3">
+                  {(
+                    [
+                      { value: 'GOOGLE', label: 'Akun Google' },
+                      { value: 'LOCAL', label: 'Username Lokal' },
+                    ] as const
+                  ).map((m) => (
+                    <label
+                      key={m.value}
+                      className={`flex min-h-[44px] cursor-pointer items-center gap-2.5 rounded-xl border px-3.5 py-2 ${
+                        authMethod === m.value
+                          ? 'border-amber-700 bg-amber-50 text-neutral-900'
+                          : 'border-neutral-200 bg-white text-neutral-800'
+                      }`}
+                    >
+                      <input
+                        type="radio"
+                        name="authMethod"
+                        value={m.value}
+                        checked={authMethod === m.value}
+                        onChange={() => setAuthMethod(m.value)}
+                        className="h-4 w-4 accent-amber-700"
+                      />
+                      <span className="text-sm font-medium">{m.label}</span>
+                    </label>
+                  ))}
+                </div>
+              </div>
+
               <div>
                 <span className="block text-sm font-medium text-neutral-800">Peran Akun</span>
                 <div className="mt-2 grid grid-cols-2 gap-3">
@@ -413,68 +512,96 @@ export function AccountsView({
                 </div>
               )}
 
-              <div>
-                <label
-                  htmlFor="account-username"
-                  className="block text-sm font-medium text-neutral-800"
-                >
-                  Nama Pengguna (Username) <span className="text-red-700">*</span>
-                </label>
-                <input
-                  ref={usernameRef}
-                  id="account-username"
-                  type="text"
-                  value={username}
-                  onChange={(e) => setUsername(e.target.value)}
-                  placeholder="Contoh: sari.terapis"
-                  className="mt-1.5 min-h-[44px] w-full rounded-xl border border-neutral-200 bg-white px-3.5 py-2 text-base text-neutral-900 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-amber-700"
-                />
-                {formErrors.username && (
-                  <p className="mt-1.5 text-sm text-red-700">{formErrors.username}</p>
-                )}
-              </div>
+              {authMethod === 'GOOGLE' ? (
+                <div>
+                  <label
+                    htmlFor="account-google-email"
+                    className="block text-sm font-medium text-neutral-800"
+                  >
+                    Email Akun Google <span className="text-red-700">*</span>
+                  </label>
+                  <input
+                    ref={googleEmailRef}
+                    id="account-google-email"
+                    type="email"
+                    value={googleEmail}
+                    onChange={(e) => setGoogleEmail(e.target.value)}
+                    placeholder="Contoh: sari.terapis@gmail.com"
+                    className="mt-1.5 min-h-[44px] w-full rounded-xl border border-neutral-200 bg-white px-3.5 py-2 text-base text-neutral-900 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-amber-700"
+                  />
+                  <p className="mt-1 text-xs text-neutral-600">
+                    Pengguna masuk langsung dengan tombol Sign in with Google memakai email ini.
+                  </p>
+                  {formErrors.googleEmail && (
+                    <p className="mt-1.5 text-sm text-red-700">{formErrors.googleEmail}</p>
+                  )}
+                </div>
+              ) : (
+                <>
+                  <div>
+                    <label
+                      htmlFor="account-username"
+                      className="block text-sm font-medium text-neutral-800"
+                    >
+                      Nama Pengguna (Username) <span className="text-red-700">*</span>
+                    </label>
+                    <input
+                      ref={usernameRef}
+                      id="account-username"
+                      type="text"
+                      value={username}
+                      onChange={(e) => setUsername(e.target.value)}
+                      placeholder="Contoh: sari.terapis"
+                      className="mt-1.5 min-h-[44px] w-full rounded-xl border border-neutral-200 bg-white px-3.5 py-2 text-base text-neutral-900 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-amber-700"
+                    />
+                    {formErrors.username && (
+                      <p className="mt-1.5 text-sm text-red-700">{formErrors.username}</p>
+                    )}
+                  </div>
 
-              <div>
-                <label
-                  htmlFor="account-password"
-                  className="block text-sm font-medium text-neutral-800"
-                >
-                  Kata Sandi <span className="text-red-700">*</span>
-                </label>
-                <input
-                  ref={passwordRef}
-                  id="account-password"
-                  type="password"
-                  value={password}
-                  onChange={(e) => setPassword(e.target.value)}
-                  placeholder="Minimal 6 karakter"
-                  className="mt-1.5 min-h-[44px] w-full rounded-xl border border-neutral-200 bg-white px-3.5 py-2 text-base text-neutral-900 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-amber-700"
-                />
-                {formErrors.password && (
-                  <p className="mt-1.5 text-sm text-red-700">{formErrors.password}</p>
-                )}
-              </div>
+                  <div>
+                    <label
+                      htmlFor="account-password"
+                      className="block text-sm font-medium text-neutral-800"
+                    >
+                      Kata Sandi <span className="text-red-700">*</span>
+                    </label>
+                    <input
+                      ref={passwordRef}
+                      id="account-password"
+                      type="password"
+                      value={password}
+                      onChange={(e) => setPassword(e.target.value)}
+                      placeholder="Minimal 6 karakter"
+                      className="mt-1.5 min-h-[44px] w-full rounded-xl border border-neutral-200 bg-white px-3.5 py-2 text-base text-neutral-900 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-amber-700"
+                    />
+                    {formErrors.password && (
+                      <p className="mt-1.5 text-sm text-red-700">{formErrors.password}</p>
+                    )}
+                  </div>
 
-              <div>
-                <label
-                  htmlFor="account-confirm"
-                  className="block text-sm font-medium text-neutral-800"
-                >
-                  Ulangi Kata Sandi <span className="text-red-700">*</span>
-                </label>
-                <input
-                  ref={confirmRef}
-                  id="account-confirm"
-                  type="password"
-                  value={confirmPassword}
-                  onChange={(e) => setConfirmPassword(e.target.value)}
-                  placeholder="Ketik ulang kata sandi"
-                  className="mt-1.5 min-h-[44px] w-full rounded-xl border border-neutral-200 bg-white px-3.5 py-2 text-base text-neutral-900 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-amber-700"
-                />
-                {formErrors.confirmPassword && (
-                  <p className="mt-1.5 text-sm text-red-700">{formErrors.confirmPassword}</p>
-                )}
-              </div>
+                  <div>
+                    <label
+                      htmlFor="account-confirm"
+                      className="block text-sm font-medium text-neutral-800"
+                    >
+                      Ulangi Kata Sandi <span className="text-red-700">*</span>
+                    </label>
+                    <input
+                      ref={confirmRef}
+                      id="account-confirm"
+                      type="password"
+                      value={confirmPassword}
+                      onChange={(e) => setConfirmPassword(e.target.value)}
+                      placeholder="Ketik ulang kata sandi"
+                      className="mt-1.5 min-h-[44px] w-full rounded-xl border border-neutral-200 bg-white px-3.5 py-2 text-base text-neutral-900 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-amber-700"
+                    />
+                    {formErrors.confirmPassword && (
+                      <p className="mt-1.5 text-sm text-red-700">{formErrors.confirmPassword}</p>
+                    )}
+                  </div>
+                </>
+              )}
 
               <div className="flex justify-end gap-3 border-t border-neutral-200 pt-4">
                 <button
@@ -497,98 +624,121 @@ export function AccountsView({
         </div>
       )}
 
-      {/* Modal Ubah Username / Kata Sandi */}
-      {passwordModalAccount && (
+      {/* Modal Kelola Akses Akun */}
+      {editModalAccount && (
         <div
           className="fixed inset-0 z-40 flex items-center justify-center bg-neutral-900/40 p-4"
           role="dialog"
           aria-modal="true"
-          aria-labelledby="update-password-title"
+          aria-labelledby="edit-access-title"
         >
           <div className="w-full max-w-md rounded-2xl border border-neutral-200 bg-white p-6 shadow-[0_1px_2px_rgba(0,0,0,0.06),0_8px_24px_rgba(0,0,0,0.08)]">
             <div className="flex items-start justify-between gap-4 border-b border-neutral-200 pb-4">
               <div>
-                <h2 id="update-password-title" className="text-lg font-semibold text-neutral-900">
-                  Ubah Akun ({passwordModalAccount.display_name})
+                <h2 id="edit-access-title" className="text-lg font-semibold text-neutral-900">
+                  Kelola Akses ({editModalAccount.display_name})
                 </h2>
                 <p className="mt-0.5 text-sm text-neutral-600">
-                  Atur ulang username dan kata sandi baru.
+                  Tautkan atau ubah email Google yang diizinkan masuk.
                 </p>
               </div>
               <button
                 type="button"
-                onClick={() => setPasswordModalAccount(null)}
-                aria-label="Tutup ubah kata sandi"
+                onClick={() => setEditModalAccount(null)}
+                aria-label="Tutup kelola akses"
                 className="flex h-10 w-10 items-center justify-center rounded-xl text-neutral-500 hover:bg-neutral-100 hover:text-neutral-900"
               >
                 <X className="h-5 w-5" />
               </button>
             </div>
 
-            {pwError && (
+            {editError && (
               <div
                 role="alert"
                 className="mt-4 rounded-xl border border-red-200 bg-red-50 p-3 text-sm text-red-800"
               >
-                {pwError}
+                {editError}
               </div>
             )}
 
-            <form onSubmit={handlePasswordUpdate} noValidate className="mt-4 space-y-4">
+            <form onSubmit={handleEditSubmit} noValidate className="mt-4 space-y-4">
               <div>
                 <label
-                  htmlFor="edit-acc-username"
+                  htmlFor="edit-acc-google-email"
                   className="block text-sm font-medium text-neutral-800"
                 >
-                  Username
+                  Email Akun Google
                 </label>
                 <input
-                  id="edit-acc-username"
-                  type="text"
-                  value={editUsername}
-                  onChange={(e) => setEditUsername(e.target.value)}
+                  id="edit-acc-google-email"
+                  type="email"
+                  value={editGoogleEmail}
+                  onChange={(e) => setEditGoogleEmail(e.target.value)}
+                  placeholder="Contoh: nama@gmail.com"
                   className="mt-1.5 min-h-[44px] w-full rounded-xl border border-neutral-200 bg-white px-3.5 py-2 text-base text-neutral-900 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-amber-700"
                 />
               </div>
 
-              <div>
-                <label
-                  htmlFor="edit-acc-password"
-                  className="block text-sm font-medium text-neutral-800"
-                >
-                  Kata Sandi Baru
-                </label>
-                <input
-                  id="edit-acc-password"
-                  type="password"
-                  value={nextPassword}
-                  onChange={(e) => setNextPassword(e.target.value)}
-                  placeholder="Minimal 6 karakter"
-                  className="mt-1.5 min-h-[44px] w-full rounded-xl border border-neutral-200 bg-white px-3.5 py-2 text-base text-neutral-900 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-amber-700"
-                />
-              </div>
+              {editModalAccount.hash && (
+                <>
+                  <div>
+                    <label
+                      htmlFor="edit-acc-username"
+                      className="block text-sm font-medium text-neutral-800"
+                    >
+                      Username Lokal (Opsional)
+                    </label>
+                    <input
+                      id="edit-acc-username"
+                      type="text"
+                      value={editUsername}
+                      onChange={(e) => setEditUsername(e.target.value)}
+                      className="mt-1.5 min-h-[44px] w-full rounded-xl border border-neutral-200 bg-white px-3.5 py-2 text-base text-neutral-900 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-amber-700"
+                    />
+                  </div>
 
-              <div>
-                <label
-                  htmlFor="edit-acc-confirm"
-                  className="block text-sm font-medium text-neutral-800"
-                >
-                  Ulangi Kata Sandi Baru
-                </label>
-                <input
-                  id="edit-acc-confirm"
-                  type="password"
-                  value={nextConfirm}
-                  onChange={(e) => setNextConfirm(e.target.value)}
-                  placeholder="Ketik ulang kata sandi baru"
-                  className="mt-1.5 min-h-[44px] w-full rounded-xl border border-neutral-200 bg-white px-3.5 py-2 text-base text-neutral-900 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-amber-700"
-                />
-              </div>
+                  <div>
+                    <label
+                      htmlFor="edit-acc-password"
+                      className="block text-sm font-medium text-neutral-800"
+                    >
+                      Kata Sandi Baru (Kosongkan jika tetap)
+                    </label>
+                    <input
+                      id="edit-acc-password"
+                      type="password"
+                      value={nextPassword}
+                      onChange={(e) => setNextPassword(e.target.value)}
+                      placeholder="Minimal 6 karakter"
+                      className="mt-1.5 min-h-[44px] w-full rounded-xl border border-neutral-200 bg-white px-3.5 py-2 text-base text-neutral-900 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-amber-700"
+                    />
+                  </div>
+
+                  {nextPassword && (
+                    <div>
+                      <label
+                        htmlFor="edit-acc-confirm"
+                        className="block text-sm font-medium text-neutral-800"
+                      >
+                        Ulangi Kata Sandi Baru
+                      </label>
+                      <input
+                        id="edit-acc-confirm"
+                        type="password"
+                        value={nextConfirm}
+                        onChange={(e) => setNextConfirm(e.target.value)}
+                        placeholder="Ketik ulang kata sandi baru"
+                        className="mt-1.5 min-h-[44px] w-full rounded-xl border border-neutral-200 bg-white px-3.5 py-2 text-base text-neutral-900 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-amber-700"
+                      />
+                    </div>
+                  )}
+                </>
+              )}
 
               <div className="flex justify-end gap-3 border-t border-neutral-200 pt-4">
                 <button
                   type="button"
-                  onClick={() => setPasswordModalAccount(null)}
+                  onClick={() => setEditModalAccount(null)}
                   className="min-h-[44px] rounded-xl border border-neutral-200 bg-white px-4 py-2 text-sm font-medium text-neutral-700 hover:bg-neutral-50 whitespace-nowrap"
                 >
                   Batal
@@ -598,7 +748,7 @@ export function AccountsView({
                   disabled={isSaving}
                   className="min-h-[44px] rounded-xl bg-amber-700 px-4 py-2 text-sm font-medium text-white hover:bg-amber-800 disabled:opacity-60 whitespace-nowrap"
                 >
-                  {isSaving ? 'Menyimpan…' : 'Simpan Sandi'}
+                  {isSaving ? 'Menyimpan…' : 'Simpan Akses'}
                 </button>
               </div>
             </form>

@@ -1,6 +1,17 @@
-// Modul akun di pojok kanan atas dengan dropdown profil, manajemen akun (Admin), ubah sandi, dan menu keluar.
+// Modul akun di pojok kanan atas dengan info akun Google, manajemen akun (Admin), aktivasi sesi Sheets, ubah sandi lokal, dan keluar.
 
-import { ChevronDown, KeyRound, Lock, LogOut, ShieldCheck, User, Users, X } from 'lucide-react';
+import {
+  CheckCircle2,
+  ChevronDown,
+  KeyRound,
+  Lock,
+  LogOut,
+  RefreshCw,
+  ShieldCheck,
+  User,
+  Users,
+  X,
+} from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
 import { updateAccountPassword } from '../lib/adminLock';
 import type { UserAccount } from '../lib/types';
@@ -8,6 +19,9 @@ import type { UserAccount } from '../lib/types';
 interface AccountMenuProps {
   currentAccount: UserAccount;
   displayLabel: string;
+  hasLiveGoogleSession: boolean;
+  isLoggingInGoogle: boolean;
+  onActivateGoogleSession: () => void;
   onOpenAccountManagement: () => void;
   onUpdateSelfAccount: (updated: UserAccount) => void;
   onSignOut: () => void;
@@ -16,6 +30,9 @@ interface AccountMenuProps {
 export function AccountMenu({
   currentAccount,
   displayLabel,
+  hasLiveGoogleSession,
+  isLoggingInGoogle,
+  onActivateGoogleSession,
   onOpenAccountManagement,
   onUpdateSelfAccount,
   onSignOut,
@@ -31,6 +48,8 @@ export function AccountMenu({
   const passwordInputRef = useRef<HTMLInputElement>(null);
 
   const isAdmin = currentAccount.role === 'ADMIN';
+  const hasLocalPassword = Boolean(currentAccount.hash && currentAccount.salt);
+  const accountIdentifier = currentAccount.google_email || currentAccount.username;
 
   useEffect(() => {
     if (!menuOpen) return;
@@ -122,15 +141,34 @@ export function AccountMenu({
           <div
             role="menu"
             aria-label="Menu akun pengguna"
-            className="absolute right-0 z-50 mt-2 w-64 rounded-2xl border border-neutral-200 bg-white p-2 shadow-[0_1px_2px_rgba(0,0,0,0.06),0_8px_24px_rgba(0,0,0,0.08)]"
+            className="absolute right-0 z-50 mt-2 w-72 rounded-2xl border border-neutral-200 bg-white p-2 shadow-[0_1px_2px_rgba(0,0,0,0.06),0_8px_24px_rgba(0,0,0,0.08)]"
           >
             <div className="border-b border-neutral-200 px-3 py-2.5">
               <p className="truncate text-sm font-semibold text-neutral-900">
                 {displayLabel}
               </p>
               <p className="truncate text-xs text-neutral-600">
-                {currentAccount.username} · {isAdmin ? 'Admin Klinik' : 'Terapis'}
+                {accountIdentifier} · {isAdmin ? 'Admin Klinik' : 'Terapis'}
               </p>
+              {hasLiveGoogleSession ? (
+                <p className="mt-1.5 inline-flex items-center gap-1.5 text-xs font-medium text-emerald-800">
+                  <CheckCircle2 className="h-3.5 w-3.5" />
+                  <span>Sesi Google & Sheets aktif</span>
+                </p>
+              ) : (
+                <button
+                  type="button"
+                  disabled={isLoggingInGoogle}
+                  onClick={() => {
+                    setMenuOpen(false);
+                    onActivateGoogleSession();
+                  }}
+                  className="mt-2 inline-flex min-h-[34px] w-full items-center justify-center gap-1.5 rounded-lg bg-amber-50 px-2.5 py-1 text-xs font-semibold text-amber-800 hover:bg-amber-100"
+                >
+                  <RefreshCw className={`h-3.5 w-3.5 ${isLoggingInGoogle ? 'animate-spin' : ''}`} />
+                  <span>{isLoggingInGoogle ? 'Menyambungkan…' : 'Aktifkan Sesi Google'}</span>
+                </button>
+              )}
             </div>
 
             <div className="mt-1.5 space-y-1">
@@ -149,15 +187,17 @@ export function AccountMenu({
                 </button>
               )}
 
-              <button
-                type="button"
-                role="menuitem"
-                onClick={openChangePassword}
-                className="flex min-h-[44px] w-full items-center gap-2.5 rounded-xl px-3 py-2 text-left text-sm font-medium text-neutral-800 hover:bg-neutral-50 focus-visible:outline-2 focus-visible:outline-amber-700"
-              >
-                <KeyRound className="h-4 w-4 text-neutral-600" />
-                <span>Ubah Kata Sandi</span>
-              </button>
+              {hasLocalPassword && (
+                <button
+                  type="button"
+                  role="menuitem"
+                  onClick={openChangePassword}
+                  className="flex min-h-[44px] w-full items-center gap-2.5 rounded-xl px-3 py-2 text-left text-sm font-medium text-neutral-800 hover:bg-neutral-50 focus-visible:outline-2 focus-visible:outline-amber-700"
+                >
+                  <KeyRound className="h-4 w-4 text-neutral-600" />
+                  <span>Ubah Kata Sandi</span>
+                </button>
+              )}
             </div>
 
             <div className="mt-1.5 border-t border-neutral-200 pt-1.5">
@@ -178,7 +218,7 @@ export function AccountMenu({
         )}
       </div>
 
-      {/* Modal Ubah Kata Sandi Sendiri */}
+      {/* Modal Ubah Kata Sandi Sendiri (khusus akun lokal) */}
       {pwModalOpen && (
         <div
           className="fixed inset-0 z-50 flex items-center justify-center bg-neutral-900/40 p-4"

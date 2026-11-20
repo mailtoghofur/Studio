@@ -11,7 +11,7 @@ import {
   Scissors,
   Users,
 } from 'lucide-react';
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { AccountMenu } from './components/AccountMenu';
 import { AccountsView } from './components/AccountsView';
 import { AdminLockScreen } from './components/AdminLockScreen';
@@ -34,6 +34,7 @@ import {
 } from './config';
 import {
   migrateLegacyLockToAccount,
+  resolveGoogleLogin,
   type AdminLockRecord,
 } from './lib/adminLock';
 import {
@@ -208,6 +209,12 @@ export default function App() {
     () => initialStore.accounts ?? []
   );
   const [currentAccount, setCurrentAccount] = useState<UserAccount | null>(null);
+  const [loginError, setLoginError] = useState<string | null>(null);
+
+  const accountsRef = useRef<UserAccount[]>(accounts);
+  accountsRef.current = accounts;
+  const currentAccountRef = useRef<UserAccount | null>(currentAccount);
+  currentAccountRef.current = currentAccount;
 
   const [therapists, setTherapists] = useState<Therapist[]>(
     () => initialStore.therapists ?? DEFAULT_THERAPISTS
@@ -285,17 +292,54 @@ export default function App() {
         if (authedUser.email) {
           setConnectedGoogleEmail(authedUser.email);
         }
+
+        if (!currentAccountRef.current && authedUser.email) {
+          const resolved = resolveGoogleLogin(
+            accountsRef.current,
+            authedUser.email,
+            authedUser.displayName
+          );
+          if (resolved.ok) {
+            if (resolved.isAutoProvisioned) {
+              setAccounts(resolved.nextAccounts);
+            }
+            setCurrentAccount(resolved.account);
+            setLoginError(null);
+          } else {
+            setLoginError(resolved.reason);
+            void logout();
+            return;
+          }
+        }
+
         const saved = readStoredState();
         if (saved.spreadsheetConnection && !saved.pendingCloudSync) {
           void syncFromSpreadsheet(token, saved.spreadsheetConnection.spreadsheetId);
         }
       },
       (rememberedUser) => {
-        // Sesi Firebase masih diingat setelah refresh, namun token OAuth di memori perlu diaktifkan ulang 1 klik
+        // Sesi Firebase masih diingat setelah refresh; pulihkan login aplikasi jika email Google terdaftar
         setUser(rememberedUser);
         setIsAuthenticated(false);
         if (rememberedUser.email) {
           setConnectedGoogleEmail(rememberedUser.email);
+          if (!currentAccountRef.current) {
+            const resolved = resolveGoogleLogin(
+              accountsRef.current,
+              rememberedUser.email,
+              rememberedUser.displayName
+            );
+            if (resolved.ok) {
+              if (resolved.isAutoProvisioned) {
+                setAccounts(resolved.nextAccounts);
+              }
+              setCurrentAccount(resolved.account);
+              setLoginError(null);
+            } else {
+              setLoginError(resolved.reason);
+              void logout();
+            }
+          }
         }
       },
       () => {
@@ -305,6 +349,60 @@ export default function App() {
     );
     return () => unsubscribe();
   }, [syncFromSpreadsheet]);
+
+  const handleGoogleAppLogin = async () => {
+    setIsLoggingIn(true);
+    setLoginError(null);
+    setSyncError(null);
+    try {
+      const result = await googleSignIn({ forceSelectAccount: true });
+      const email = result.user.email;
+      if (!email) {
+        await logout();
+        setLoginError('Akun Google tidak menyertakan alamat email.');
+        return;
+      }
+
+      const resolved = resolveGoogleLogin(
+        accountsRef.current,
+        email,
+        result.user.displayName
+      );
+      if (!resolved.ok) {
+        await logout();
+        setUser(null);
+        setIsAuthenticated(false);
+        setLoginError(resolved.reason);
+        return;
+      }
+
+      if (resolved.isAutoProvisioned) {
+        setAccounts(resolved.nextAccounts);
+      }
+      setUser(result.user);
+      setIsAuthenticated(true);
+      setConnectedGoogleEmail(email);
+      setCurrentAccount(resolved.account);
+      setActiveTab('calendar');
+      setNoticeMessage(
+        resolved.isAutoProvisioned
+          ? `Akun Admin (${email}) berhasil dibuat dan terhubung dengan Google.`
+          : null
+      );
+
+      const boundId =
+        connection?.spreadsheetId ?? readStoredState().spreadsheetConnection?.spreadsheetId;
+      if (boundId && !pendingCloudSync) {
+        await syncFromSpreadsheet(result.accessToken, boundId);
+      }
+    } catch (err) {
+      setLoginError(
+        err instanceof Error ? err.message : 'Gagal masuk dengan akun Google.'
+      );
+    } finally {
+      setIsLoggingIn(false);
+    }
+  };
 
   const handleSignIn = async (forceSelectAccount = false) => {
     setIsLoggingIn(true);
@@ -350,6 +448,15 @@ export default function App() {
         ? `Sesi Google ditutup. Koneksi ke "${connection.title}" tetap tersimpan permanen di perangkat ini.`
         : 'Sesi Google ditutup. Data lokal tetap tersimpan di browser.'
     );
+  };
+
+  const handleAppSignOut = async () => {
+    setCurrentAccount(null);
+    setLoginError(null);
+    setNoticeMessage(null);
+    await logout();
+    setUser(null);
+    setIsAuthenticated(false);
   };
 
   const handleCreateSpreadsheet = async (title: string) => {
@@ -867,13 +974,13 @@ export default function App() {
       <>
         <AdminLockScreen
           accounts={accounts}
-          onLoginSuccess={(account) => {
+          isGoogleLoggingIn={isLoggingIn}
+          googleAuthError={loginError}
+          onGoogleLogin={() => void handleGoogleAppLogin()}
+          onLocalLoginSuccess={(account) => {
             setCurrentAccount(account);
             setActiveTab('calendar');
             setNoticeMessage(null);
-          }}
-          onCreateInitialAdmin={(adminAcc) => {
-            setAccounts([adminAcc]);
           }}
           onRequestResetLock={handleRequestResetLock}
         />
@@ -992,9 +1099,12 @@ export default function App() {
             <AccountMenu
               currentAccount={currentAccount}
               displayLabel={activeTherapistProfile?.name ?? currentAccount.display_name}
+              hasLiveGoogleSession={Boolean(isAuthenticated && getAccessToken())}
+              isLoggingInGoogle={isLoggingIn}
+              onActivateGoogleSession={() => void handleSignIn(false)}
               onOpenAccountManagement={() => setActiveTab('accounts')}
               onUpdateSelfAccount={handleUpdateAccount}
-              onSignOut={() => setCurrentAccount(null)}
+              onSignOut={() => void handleAppSignOut()}
             />
           </div>
         </div>

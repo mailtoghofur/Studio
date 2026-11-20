@@ -4,7 +4,7 @@ Dokumen ini merangkum fitur dari PRD v1.0 beserta keputusan hasil klarifikasi pe
 
 ## Keputusan Teknis & Produk
 - **Penyimpanan Data**: Menggunakan penyimpanan lokal browser (`localStorage`), dilengkapi ekspor CSV (Reservasi, Layanan, Terapis, Pendapatan) serta koneksi Google Sheets permanen setelah spreadsheet dihubungkan (tetap terikat lintas muat ulang halaman hingga diputus eksplisit dengan konfirmasi).
-- **Keamanan Akses**: Manajemen akun lokal di browser untuk Admin dan Terapis (nama pengguna dan kata sandi diatur sendiri, disimpan sebagai hash SHA-256 tanpa kata sandi tertanam di kode).
+- **Keamanan Akses**: Login utama terhubung langsung dengan akun Google (Admin & Terapis) sekaligus mengaktifkan akses Google Sheets, dengan opsi cadangan akun lokal SHA-256 di browser.
 - **Operasional**: 7 hari seminggu (Senin–Minggu), pukul 10.00–21.00, jeda antarsesi 0 menit, kapasitas mengikuti jumlah terapis aktif.
 
 ## Daftar Fitur

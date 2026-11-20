@@ -8,8 +8,12 @@ export type BookingStatus = 'SCHEDULED' | 'COMPLETED' | 'CANCELLED';
 
 export type UserRole = 'ADMIN' | 'THERAPIST';
 
+export type AuthMethod = 'GOOGLE' | 'LOCAL';
+
 export interface UserAccount {
   account_id: string;
+  auth_method?: AuthMethod;
+  google_email?: string;
   username: string;
   display_name: string;
   role: UserRole;

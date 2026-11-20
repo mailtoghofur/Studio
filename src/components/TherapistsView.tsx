@@ -1,8 +1,8 @@
-// Manajemen profil, penambahan terapis baru, status aktif, dan akses akun terapis (FT-06).
+// Manajemen profil, penambahan terapis baru, status aktif, dan akses akun Google terapis (FT-06).
 
 import { CheckCircle2, KeyRound, Plus, UserCheck, UserX, X } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
-import { createUserAccount } from '../lib/adminLock';
+import { createGoogleAccount } from '../lib/adminLock';
 import type { Therapist, UserAccount } from '../lib/types';
 
 interface TherapistsViewProps {
@@ -15,6 +15,8 @@ interface TherapistsViewProps {
   ) => void;
   onOpenAccountsTab: () => void;
 }
+
+const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
 export function TherapistsView({
   therapists,
@@ -29,18 +31,15 @@ export function TherapistsView({
   const [addOpen, setAddOpen] = useState(false);
   const [newName, setNewName] = useState('');
   const [createAccountAlso, setCreateAccountAlso] = useState(true);
-  const [newUsername, setNewUsername] = useState('');
-  const [newPassword, setNewPassword] = useState('');
+  const [newGoogleEmail, setNewGoogleEmail] = useState('');
   const [addErrors, setAddErrors] = useState<{
     name?: string;
-    username?: string;
-    password?: string;
+    googleEmail?: string;
   }>({});
   const [isAdding, setIsAdding] = useState(false);
 
   const newNameRef = useRef<HTMLInputElement>(null);
-  const newUserRef = useRef<HTMLInputElement>(null);
-  const newPassRef = useRef<HTMLInputElement>(null);
+  const newEmailRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     setDrafts(therapists);
@@ -60,8 +59,7 @@ export function TherapistsView({
   const openAddModal = () => {
     setNewName('');
     setCreateAccountAlso(true);
-    setNewUsername('');
-    setNewPassword('');
+    setNewGoogleEmail('');
     setAddErrors({});
     setAddOpen(true);
   };
@@ -81,32 +79,27 @@ export function TherapistsView({
   const handleAddSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     const cleanName = newName.trim();
-    const cleanUser = newUsername.trim();
-    const nextErrors: { name?: string; username?: string; password?: string } = {};
+    const cleanEmail = newGoogleEmail.trim().toLowerCase();
+    const nextErrors: { name?: string; googleEmail?: string } = {};
 
     if (!cleanName) {
       nextErrors.name = 'Isi nama terapis baru, contoh: Maya Kusuma.';
     }
 
     if (createAccountAlso) {
-      if (cleanUser.length < 3 || /\s/.test(cleanUser)) {
-        nextErrors.username = 'Username minimal 3 karakter tanpa spasi, contoh: maya.terapis.';
+      if (!EMAIL_REGEX.test(cleanEmail)) {
+        nextErrors.googleEmail = 'Masukkan email Google yang valid, contoh: maya@gmail.com.';
       } else if (
-        accounts.some((acc) => acc.username.trim().toLowerCase() === cleanUser.toLowerCase())
+        accounts.some((acc) => acc.google_email?.trim().toLowerCase() === cleanEmail)
       ) {
-        nextErrors.username = 'Username tersebut sudah dipakai akun lain. Pilih username berbeda.';
-      }
-
-      if (newPassword.length < 6) {
-        nextErrors.password = 'Kata sandi minimal 6 karakter.';
+        nextErrors.googleEmail = 'Email Google tersebut sudah dipakai akun lain.';
       }
     }
 
     if (Object.keys(nextErrors).length > 0) {
       setAddErrors(nextErrors);
       if (nextErrors.name) newNameRef.current?.focus();
-      else if (nextErrors.username) newUserRef.current?.focus();
-      else if (nextErrors.password) newPassRef.current?.focus();
+      else if (nextErrors.googleEmail) newEmailRef.current?.focus();
       return;
     }
 
@@ -119,17 +112,15 @@ export function TherapistsView({
         is_active: true,
       };
 
-      let newAccount: UserAccount | undefined;
-      if (createAccountAlso) {
-        newAccount = await createUserAccount({
-          username: cleanUser,
-          display_name: cleanName,
-          password: newPassword,
-          role: 'THERAPIST',
-          therapist_id: therapistId,
-          is_active: true,
-        });
-      }
+      const newAccount = createAccountAlso
+        ? createGoogleAccount({
+            google_email: cleanEmail,
+            display_name: cleanName,
+            role: 'THERAPIST',
+            therapist_id: therapistId,
+            is_active: true,
+          })
+        : undefined;
 
       setAddOpen(false);
       onAddTherapistWithOptionalAccount(newTherapist, newAccount);
@@ -191,7 +182,7 @@ export function TherapistsView({
                   </label>
                   <span className="text-xs text-neutral-600">
                     {linkedAccount
-                      ? `Akun: ${linkedAccount.username} (${
+                      ? `Akun: ${linkedAccount.google_email || linkedAccount.username} (${
                           linkedAccount.is_active ? 'Aktif' : 'Nonaktif'
                         })`
                       : 'Belum ada akun login'}
@@ -324,53 +315,33 @@ export function TherapistsView({
                   className="h-4 w-4 accent-amber-700"
                 />
                 <span className="text-sm font-medium text-neutral-900">
-                  Sekaligus buatkan akun login terapis
+                  Sekaligus daftarkan email Google terapis
                 </span>
               </label>
 
               {createAccountAlso && (
-                <div className="space-y-3 rounded-xl border border-neutral-200 bg-neutral-50 p-3.5">
-                  <div>
-                    <label
-                      htmlFor="new-therapist-username"
-                      className="block text-sm font-medium text-neutral-800"
-                    >
-                      Nama Pengguna (Username) <span className="text-red-700">*</span>
-                    </label>
-                    <input
-                      ref={newUserRef}
-                      id="new-therapist-username"
-                      type="text"
-                      value={newUsername}
-                      onChange={(e) => setNewUsername(e.target.value)}
-                      placeholder="Contoh: maya.terapis"
-                      className="mt-1.5 min-h-[44px] w-full rounded-xl border border-neutral-200 bg-white px-3.5 py-2 text-base text-neutral-900 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-amber-700"
-                    />
-                    {addErrors.username && (
-                      <p className="mt-1 text-sm text-red-700">{addErrors.username}</p>
-                    )}
-                  </div>
-
-                  <div>
-                    <label
-                      htmlFor="new-therapist-password"
-                      className="block text-sm font-medium text-neutral-800"
-                    >
-                      Kata Sandi Awal <span className="text-red-700">*</span>
-                    </label>
-                    <input
-                      ref={newPassRef}
-                      id="new-therapist-password"
-                      type="password"
-                      value={newPassword}
-                      onChange={(e) => setNewPassword(e.target.value)}
-                      placeholder="Minimal 6 karakter"
-                      className="mt-1.5 min-h-[44px] w-full rounded-xl border border-neutral-200 bg-white px-3.5 py-2 text-base text-neutral-900 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-amber-700"
-                    />
-                    {addErrors.password && (
-                      <p className="mt-1 text-sm text-red-700">{addErrors.password}</p>
-                    )}
-                  </div>
+                <div className="space-y-2 rounded-xl border border-neutral-200 bg-neutral-50 p-3.5">
+                  <label
+                    htmlFor="new-therapist-email"
+                    className="block text-sm font-medium text-neutral-800"
+                  >
+                    Email Akun Google Terapis <span className="text-red-700">*</span>
+                  </label>
+                  <input
+                    ref={newEmailRef}
+                    id="new-therapist-email"
+                    type="email"
+                    value={newGoogleEmail}
+                    onChange={(e) => setNewGoogleEmail(e.target.value)}
+                    placeholder="Contoh: maya@gmail.com"
+                    className="min-h-[44px] w-full rounded-xl border border-neutral-200 bg-white px-3.5 py-2 text-base text-neutral-900 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-amber-700"
+                  />
+                  <p className="text-xs text-neutral-600">
+                    Terapis cukup masuk dengan tombol Sign in with Google memakai email ini.
+                  </p>
+                  {addErrors.googleEmail && (
+                    <p className="text-sm text-red-700">{addErrors.googleEmail}</p>
+                  )}
                 </div>
               )}
 
