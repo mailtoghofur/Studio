@@ -7,6 +7,7 @@ import {
   Home,
   MapPin,
   Phone,
+  Printer,
   User,
   X,
   XCircle,
@@ -28,6 +29,7 @@ interface BookingDetailModalProps {
   onClose: () => void;
   onRequestStatusChange: (booking: Booking, nextStatus: BookingStatus) => void;
   onStartReschedule: (booking: Booking) => void;
+  onOpenReceipt: (booking: Booking) => void;
 }
 
 export function BookingDetailModal({
@@ -38,6 +40,7 @@ export function BookingDetailModal({
   onClose,
   onRequestStatusChange,
   onStartReschedule,
+  onOpenReceipt,
 }: BookingDetailModalProps) {
   if (!booking) return null;
 
@@ -205,7 +208,7 @@ export function BookingDetailModal({
         )}
 
         {!isScheduled && (
-          <div className="mt-6 flex justify-end border-t border-neutral-200 pt-4">
+          <div className="mt-6 flex flex-wrap justify-end gap-3 border-t border-neutral-200 pt-4">
             <button
               type="button"
               onClick={onClose}
@@ -213,6 +216,16 @@ export function BookingDetailModal({
             >
               Tutup
             </button>
+            {isCompleted && (
+              <button
+                type="button"
+                onClick={() => onOpenReceipt(booking)}
+                className="inline-flex min-h-[44px] items-center gap-2 rounded-xl bg-amber-700 px-4 py-2 text-sm font-medium text-white hover:bg-amber-800 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-amber-700 whitespace-nowrap"
+              >
+                <Printer className="h-4 w-4" />
+                <span>Cetak Resi</span>
+              </button>
+            )}
           </div>
         )}
       </div>

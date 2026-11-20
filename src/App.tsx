@@ -17,6 +17,7 @@ import { BookingFormModal } from './components/BookingFormModal';
 import { ConfirmDialog } from './components/ConfirmDialog';
 import { DailyCalendarView } from './components/DailyCalendarView';
 import { DatabasePanel } from './components/DatabasePanel';
+import { ReceiptModal } from './components/ReceiptModal';
 import { RevenueSummaryView } from './components/RevenueSummaryView';
 import { ServicesView } from './components/ServicesView';
 import { TherapistsView } from './components/TherapistsView';
@@ -132,6 +133,7 @@ export default function App() {
   }>({});
   const [editingBooking, setEditingBooking] = useState<Booking | null>(null);
   const [selectedBooking, setSelectedBooking] = useState<Booking | null>(null);
+  const [receiptBooking, setReceiptBooking] = useState<Booking | null>(null);
   const [confirmDialog, setConfirmDialog] = useState<ConfirmDialogState | null>(null);
 
   useEffect(() => {
@@ -215,6 +217,7 @@ export default function App() {
     setCurrentAccountId(null);
     setAccountDb(null);
     setSelectedBooking(null);
+    setReceiptBooking(null);
     setEditingBooking(null);
     setFormOpen(false);
     setNoticeMessage(null);
@@ -227,6 +230,8 @@ export default function App() {
     setLegacySeed(undefined);
     setCurrentAccountId(null);
     setAccountDb(null);
+    setSelectedBooking(null);
+    setReceiptBooking(null);
     setNoticeMessage(null);
   };
 
@@ -266,15 +271,22 @@ export default function App() {
     const nextLabel = STATUS_LABELS[nextStatus];
 
     const applyStatus = async () => {
+      const updatedBooking: Booking = {
+        ...booking,
+        status: nextStatus,
+        updated_at: new Date().toISOString(),
+      };
       updateActiveDatabase((prev) => ({
         ...prev,
         bookings: prev.bookings.map((b) =>
-          b.booking_id === booking.booking_id
-            ? { ...b, status: nextStatus, updated_at: new Date().toISOString() }
-            : b
+          b.booking_id === booking.booking_id ? updatedBooking : b
         ),
       }));
-      setSelectedBooking(null);
+      if (nextStatus === 'COMPLETED') {
+        setSelectedBooking(updatedBooking);
+      } else {
+        setSelectedBooking(null);
+      }
       setNoticeMessage(`Status reservasi ${booking.patient_name} diubah menjadi ${nextLabel}.`);
     };
 
@@ -467,6 +479,12 @@ export default function App() {
   const selectedBookingTherapist = selectedBooking
     ? therapists.find((t) => t.therapist_id === selectedBooking.therapist_id)
     : undefined;
+  const receiptService = receiptBooking
+    ? services.find((s) => s.service_id === receiptBooking.service_id)
+    : undefined;
+  const receiptTherapist = receiptBooking
+    ? therapists.find((t) => t.therapist_id === receiptBooking.therapist_id)
+    : undefined;
 
   const isAdmin = currentAccount.role === 'ADMIN';
   const activeTherapistProfile =
@@ -475,7 +493,8 @@ export default function App() {
       : undefined;
 
   return (
-    <div className="min-h-screen bg-neutral-50 text-neutral-900">
+    <>
+    <div className="min-h-screen bg-neutral-50 text-neutral-900 print:hidden">
       {/* Bilah navigasi atas */}
       <header className="border-b border-neutral-200 bg-white">
         <div className="mx-auto flex max-w-7xl flex-wrap items-center justify-between gap-4 px-4 py-3 md:px-6">
@@ -700,6 +719,10 @@ export default function App() {
           setEditingBooking(booking);
           setFormOpen(true);
         }}
+        onOpenReceipt={(booking) => {
+          setSelectedBooking(null);
+          setReceiptBooking(booking);
+        }}
       />
 
       <ConfirmDialog
@@ -707,5 +730,13 @@ export default function App() {
         onClose={() => setConfirmDialog(null)}
       />
     </div>
+
+    <ReceiptModal
+      booking={receiptBooking}
+      service={receiptService}
+      therapist={receiptTherapist}
+      onClose={() => setReceiptBooking(null)}
+    />
+    </>
   );
 }
