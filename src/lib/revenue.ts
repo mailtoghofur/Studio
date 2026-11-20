@@ -1,5 +1,6 @@
-// Logika perhitungan rekapitulasi pendapatan harian, mingguan, dan bulanan atas layanan yang dihasilkan (FT-08).
+// Logika perhitungan rekapitulasi pendapatan harian, mingguan, dan bulanan beserta komisi terapis 10% per transaksi (FT-08).
 
+import { THERAPIST_COMMISSION_RATE } from '../config';
 import { addDaysYYYYMMDD, formatDateIndo, getTodayYYYYMMDD, parseDateParts } from './format';
 import type { Booking, Service, ServiceCategory, Therapist } from './types';
 
@@ -28,6 +29,7 @@ export interface TherapistRevenueRow {
   therapist_name: string;
   session_count: number;
   total_revenue: number;
+  total_commission: number;
   share_percent: number;
 }
 
@@ -43,6 +45,7 @@ export interface TimelineBucketRow {
   sublabel?: string;
   session_count: number;
   total_revenue: number;
+  total_commission: number;
 }
 
 export interface DailySessionDetailRow {
@@ -51,13 +54,17 @@ export interface DailySessionDetailRow {
   category: ServiceCategory | null;
   therapist_name: string;
   amount: number;
+  commission: number;
   counted: boolean;
 }
 
 export interface RevenueReport {
   range: PeriodRange;
   scope: RevenueStatusScope;
+  commissionRate: number;
   totalRevenue: number;
+  totalCommission: number;
+  netClinicRevenue: number;
   totalSessions: number;
   scheduledPotentialRevenue: number;
   scheduledCount: number;
@@ -90,6 +97,11 @@ function toYYYYMMDD(year: number, month: number, day: number): string {
   return `${year}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
 }
 
+export function calculateTransactionCommission(amount: number): number {
+  const safeAmount = Number.isFinite(amount) ? Math.max(0, Math.round(amount)) : 0;
+  return Math.round(safeAmount * THERAPIST_COMMISSION_RATE);
+}
+
 export function getMonthKeyFromDate(dateStr: string): string {
   const parts = parseDateParts(dateStr);
   if (!parts) {
@@ -118,7 +130,7 @@ export function formatMonthYearIndo(monthKey: string): string {
 }
 
 /**
- * Mengembalikan batas tanggal Senin–Minggu untuk pekan yang memuat `referenceDate`.
+ * Mengembalikan batas tanggal Senin-Minggu untuk pekan yang memuat `referenceDate`.
  */
 export function getWeekRange(referenceDate: string): PeriodRange {
   const parts = parseDateParts(referenceDate);
@@ -204,6 +216,7 @@ export function calculateRevenueReport(params: {
   );
 
   let totalRevenue = 0;
+  let totalCommission = 0;
   let totalSessions = 0;
   let scheduledPotentialRevenue = 0;
   let scheduledCount = 0;
@@ -235,7 +248,10 @@ export function calculateRevenueReport(params: {
       continue;
     }
 
+    const txCommission = calculateTransactionCommission(price);
+
     totalRevenue += price;
+    totalCommission += txCommission;
     totalSessions += 1;
 
     if (service) {
@@ -263,12 +279,14 @@ export function calculateRevenueReport(params: {
     if (existingTherapist) {
       existingTherapist.session_count += 1;
       existingTherapist.total_revenue += price;
+      existingTherapist.total_commission += txCommission;
     } else {
       therapistAgg.set(booking.therapist_id, {
         therapist_id: booking.therapist_id,
         therapist_name: therapist?.name ?? `Terapis (${booking.therapist_id})`,
         session_count: 1,
         total_revenue: price,
+        total_commission: txCommission,
       });
     }
   }
@@ -304,16 +322,21 @@ export function calculateRevenueReport(params: {
       const dayBookings = inRangeBookings.filter(
         (b) => b.booking_date === dateStr && isCountedBooking(b, scope)
       );
-      const dayRevenue = dayBookings.reduce((sum, b) => {
+      let dayRevenue = 0;
+      let dayCommission = 0;
+      for (const b of dayBookings) {
         const s = serviceMap.get(b.service_id);
-        return sum + (s ? Math.round(s.price) : 0);
-      }, 0);
+        const price = s ? Math.round(s.price) : 0;
+        dayRevenue += price;
+        dayCommission += calculateTransactionCommission(price);
+      }
 
       timelineBuckets.push({
         key: dateStr,
         label: `${HARI_SINGKAT[dt.getDay()]}, ${formatDateIndo(dateStr)}`,
         session_count: dayBookings.length,
         total_revenue: dayRevenue,
+        total_commission: dayCommission,
       });
     }
   } else if (periodType === 'MONTHLY') {
@@ -332,10 +355,14 @@ export function calculateRevenueReport(params: {
           b.booking_date <= bucketEnd &&
           isCountedBooking(b, scope)
       );
-      const bucketRevenue = bucketBookings.reduce((sum, b) => {
+      let bucketRevenue = 0;
+      let bucketCommission = 0;
+      for (const b of bucketBookings) {
         const s = serviceMap.get(b.service_id);
-        return sum + (s ? Math.round(s.price) : 0);
-      }, 0);
+        const price = s ? Math.round(s.price) : 0;
+        bucketRevenue += price;
+        bucketCommission += calculateTransactionCommission(price);
+      }
 
       timelineBuckets.push({
         key: `${bucketStart}_${bucketEnd}`,
@@ -343,6 +370,7 @@ export function calculateRevenueReport(params: {
         sublabel: `${dayStart} - ${dayEnd} ${BULAN_INDO[startParts.month - 1]}`,
         session_count: bucketBookings.length,
         total_revenue: bucketRevenue,
+        total_commission: bucketCommission,
       });
       weekNum += 1;
     }
@@ -363,6 +391,7 @@ export function calculateRevenueReport(params: {
               category: service?.category ?? null,
               therapist_name: therapist?.name ?? `Terapis (${booking.therapist_id})`,
               amount,
+              commission: calculateTransactionCommission(amount),
               counted: isCountedBooking(booking, scope),
             };
           })
@@ -371,7 +400,10 @@ export function calculateRevenueReport(params: {
   return {
     range,
     scope,
+    commissionRate: THERAPIST_COMMISSION_RATE,
     totalRevenue,
+    totalCommission,
+    netClinicRevenue: Math.max(0, totalRevenue - totalCommission),
     totalSessions,
     scheduledPotentialRevenue,
     scheduledCount,

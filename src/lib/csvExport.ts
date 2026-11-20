@@ -98,41 +98,66 @@ export function exportRevenueCsv(report: RevenueReport): void {
         ? `mingguan-${report.range.startDate}_sd_${report.range.endDate}`
         : `bulanan-${report.range.startDate.slice(0, 7)}`;
 
+  const scopeLabel =
+    report.scope === 'COMPLETED_ONLY' ? 'Selesai Saja' : 'Selesai + Terjadwal';
+
   const rows: (string | number | boolean)[][] = report.byService.map((row) => [
+    'Layanan',
     report.range.label,
-    report.scope === 'COMPLETED_ONLY' ? 'Selesai Saja' : 'Selesai + Terjadwal',
+    scopeLabel,
     row.service_id,
     row.service_name,
     CATEGORY_LABELS[row.category],
     row.session_count,
     row.unit_price,
     row.total_revenue,
+    Math.round(row.total_revenue * report.commissionRate),
     `${row.share_percent}%`,
   ]);
 
   rows.push([
+    'Layanan',
     report.range.label,
-    report.scope === 'COMPLETED_ONLY' ? 'Selesai Saja' : 'Selesai + Terjadwal',
+    scopeLabel,
     '-',
     'TOTAL PENDAPATAN',
     '-',
     report.totalSessions,
     '-',
     report.totalRevenue,
+    report.totalCommission,
     report.totalRevenue > 0 ? '100%' : '0%',
   ]);
+
+  for (const t of report.byTherapist) {
+    rows.push([
+      'Komisi Terapis',
+      report.range.label,
+      scopeLabel,
+      t.therapist_id,
+      t.therapist_name,
+      'Terapis',
+      t.session_count,
+      '-',
+      t.total_revenue,
+      t.total_commission,
+      `${t.share_percent}%`,
+    ]);
+  }
 
   downloadCsvFile(
     `rekap-pendapatan-${periodSlug}.csv`,
     [
+      'bagian',
       'periode',
       'cakupan_status',
-      'service_id',
-      'nama_layanan',
+      'kode',
+      'nama_layanan_atau_terapis',
       'kategori',
       'jumlah_sesi',
       'harga_satuan',
       'total_pendapatan',
+      'komisi_10_persen',
       'porsi',
     ],
     rows

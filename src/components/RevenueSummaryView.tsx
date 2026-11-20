@@ -92,7 +92,7 @@ export function RevenueSummaryView({
             Rekapitulasi Pendapatan
           </h1>
           <p className="mt-1 text-sm text-neutral-600">
-            Ringkasan pemasukan layanan harian, mingguan, dan bulanan.
+            Ringkasan pemasukan layanan harian, mingguan, bulanan, dan komisi terapis 10%.
           </p>
         </div>
 
@@ -234,7 +234,7 @@ export function RevenueSummaryView({
       </div>
 
       {/* Strip KPI Ringkasan Utama */}
-      <div className="grid grid-cols-1 divide-y divide-neutral-200 rounded-xl border border-neutral-200 bg-neutral-50 sm:grid-cols-3 sm:divide-x sm:divide-y-0">
+      <div className="grid grid-cols-1 divide-y divide-neutral-200 rounded-xl border border-neutral-200 bg-neutral-50 lg:grid-cols-4 lg:divide-x lg:divide-y-0">
         <div className="p-4">
           <p className="text-sm font-medium text-neutral-600">
             {scope === 'COMPLETED_ONLY' ? 'Pendapatan Terealisasi' : 'Proyeksi Total Pendapatan'}
@@ -244,6 +244,16 @@ export function RevenueSummaryView({
           </p>
           <p className="mt-1 text-xs text-neutral-600 tabular-nums">
             Dari {report.totalSessions} sesi layanan terhitung
+          </p>
+        </div>
+
+        <div className="p-4">
+          <p className="text-sm font-medium text-neutral-600">Komisi Terapis (10%)</p>
+          <p className="mt-1 text-3xl font-semibold tracking-tight text-neutral-900 tabular-nums">
+            {formatRupiah(report.totalCommission)}
+          </p>
+          <p className="mt-1 text-xs text-neutral-600 tabular-nums">
+            Bersih klinik: {formatRupiah(report.netClinicRevenue)}
           </p>
         </div>
 
@@ -380,13 +390,14 @@ export function RevenueSummaryView({
               </div>
             ) : (
               <div className="overflow-x-auto rounded-xl border border-neutral-200">
-                <table className="w-full min-w-[460px] border-collapse text-left text-sm">
+                <table className="w-full min-w-[540px] border-collapse text-left text-sm">
                   <thead>
                     <tr className="border-b border-neutral-200 bg-neutral-50 text-neutral-700">
                       <th className="px-3.5 py-2.5 font-semibold">Jam</th>
                       <th className="px-3.5 py-2.5 font-semibold">Pasien & Layanan</th>
                       <th className="px-3.5 py-2.5 font-semibold">Status</th>
                       <th className="px-3.5 py-2.5 text-right font-semibold">Nominal</th>
+                      <th className="px-3.5 py-2.5 text-right font-semibold">Komisi 10%</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-neutral-200">
@@ -423,6 +434,15 @@ export function RevenueSummaryView({
                         >
                           {formatRupiah(item.amount)}
                         </td>
+                        <td
+                          className={`px-3.5 py-2.5 text-right font-medium tabular-nums whitespace-nowrap ${
+                            item.counted
+                              ? 'text-amber-800'
+                              : 'text-neutral-400 line-through'
+                          }`}
+                        >
+                          {formatRupiah(item.commission)}
+                        </td>
                       </tr>
                     ))}
                   </tbody>
@@ -431,7 +451,7 @@ export function RevenueSummaryView({
             )
           ) : (
             <div className="overflow-x-auto rounded-xl border border-neutral-200">
-              <table className="w-full min-w-[380px] border-collapse text-left text-sm">
+              <table className="w-full min-w-[440px] border-collapse text-left text-sm">
                 <thead>
                   <tr className="border-b border-neutral-200 bg-neutral-50 text-neutral-700">
                     <th className="px-3.5 py-2.5 font-semibold">
@@ -439,6 +459,7 @@ export function RevenueSummaryView({
                     </th>
                     <th className="px-3.5 py-2.5 text-right font-semibold">Sesi</th>
                     <th className="px-3.5 py-2.5 text-right font-semibold">Pendapatan</th>
+                    <th className="px-3.5 py-2.5 text-right font-semibold">Komisi 10%</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-neutral-200">
@@ -456,6 +477,9 @@ export function RevenueSummaryView({
                       <td className="px-3.5 py-2.5 text-right font-semibold text-neutral-900 tabular-nums">
                         {formatRupiah(bucket.total_revenue)}
                       </td>
+                      <td className="px-3.5 py-2.5 text-right font-semibold text-amber-800 tabular-nums">
+                        {formatRupiah(bucket.total_commission)}
+                      </td>
                     </tr>
                   ))}
                 </tbody>
@@ -464,21 +488,24 @@ export function RevenueSummaryView({
           )}
         </div>
 
-        {/* Pendapatan per Terapis */}
+        {/* Pendapatan & Komisi per Terapis */}
         <div>
-          <h2 className="mb-3 text-lg font-semibold text-neutral-900">Pendapatan per Terapis</h2>
+          <h2 className="mb-3 text-lg font-semibold text-neutral-900">
+            Pendapatan & Komisi per Terapis
+          </h2>
           {report.byTherapist.length === 0 ? (
             <div className="rounded-xl border border-neutral-200 bg-neutral-50 p-6 text-center text-sm text-neutral-600">
               Belum ada kontribusi terapis yang dihitung pada periode ini.
             </div>
           ) : (
             <div className="overflow-x-auto rounded-xl border border-neutral-200">
-              <table className="w-full min-w-[380px] border-collapse text-left text-sm">
+              <table className="w-full min-w-[460px] border-collapse text-left text-sm">
                 <thead>
                   <tr className="border-b border-neutral-200 bg-neutral-50 text-neutral-700">
                     <th className="px-3.5 py-2.5 font-semibold">Nama Terapis</th>
                     <th className="px-3.5 py-2.5 text-right font-semibold">Sesi</th>
-                    <th className="px-3.5 py-2.5 text-right font-semibold">Total</th>
+                    <th className="px-3.5 py-2.5 text-right font-semibold">Pendapatan</th>
+                    <th className="px-3.5 py-2.5 text-right font-semibold">Komisi 10%</th>
                     <th className="px-3.5 py-2.5 text-right font-semibold">Porsi</th>
                   </tr>
                 </thead>
@@ -494,12 +521,32 @@ export function RevenueSummaryView({
                       <td className="px-3.5 py-2.5 text-right font-semibold text-neutral-900 tabular-nums">
                         {formatRupiah(row.total_revenue)}
                       </td>
+                      <td className="px-3.5 py-2.5 text-right font-semibold text-amber-800 tabular-nums">
+                        {formatRupiah(row.total_commission)}
+                      </td>
                       <td className="px-3.5 py-2.5 text-right text-neutral-700 tabular-nums">
                         {row.share_percent}%
                       </td>
                     </tr>
                   ))}
                 </tbody>
+                <tfoot>
+                  <tr className="border-t border-neutral-200 bg-neutral-50 font-semibold text-neutral-900">
+                    <td className="px-3.5 py-2.5">Total</td>
+                    <td className="px-3.5 py-2.5 text-right tabular-nums">
+                      {report.totalSessions}
+                    </td>
+                    <td className="px-3.5 py-2.5 text-right tabular-nums">
+                      {formatRupiah(report.totalRevenue)}
+                    </td>
+                    <td className="px-3.5 py-2.5 text-right text-amber-800 tabular-nums">
+                      {formatRupiah(report.totalCommission)}
+                    </td>
+                    <td className="px-3.5 py-2.5 text-right tabular-nums">
+                      {report.totalRevenue > 0 ? '100%' : '0%'}
+                    </td>
+                  </tr>
+                </tfoot>
               </table>
             </div>
           )}
