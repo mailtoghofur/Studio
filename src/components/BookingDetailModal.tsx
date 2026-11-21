@@ -4,6 +4,7 @@ import {
   CalendarClock,
   CheckCircle2,
   Clock,
+  FilePenLine,
   Home,
   MapPin,
   Phone,
@@ -30,6 +31,7 @@ interface BookingDetailModalProps {
   onRequestStatusChange: (booking: Booking, nextStatus: BookingStatus) => void;
   onStartReschedule: (booking: Booking) => void;
   onOpenReceipt: (booking: Booking) => void;
+  onEditReceipt?: (booking: Booking) => void;
 }
 
 export function BookingDetailModal({
@@ -41,6 +43,7 @@ export function BookingDetailModal({
   onRequestStatusChange,
   onStartReschedule,
   onOpenReceipt,
+  onEditReceipt,
 }: BookingDetailModalProps) {
   if (!booking) return null;
 
@@ -112,7 +115,11 @@ export function BookingDetailModal({
                       {service.duration_minutes} menit ·{' '}
                       {booking.is_loyalty_reward
                         ? 'Rp0 (Gratis Kesetiaan)'
-                        : formatRupiah(service.price)}
+                        : formatRupiah(
+                            typeof booking.final_price === 'number'
+                              ? booking.final_price
+                              : service.price
+                          )}
                     </span>
                   </>
                 ) : (
@@ -167,6 +174,20 @@ export function BookingDetailModal({
                 <dd className="max-w-[260px] text-right text-neutral-900">{booking.notes}</dd>
               </div>
             )}
+
+            {booking.receipt_revised_at && (
+              <div className="flex items-start justify-between gap-4 px-4 py-3">
+                <dt className="text-neutral-600">Status Resi</dt>
+                <dd className="max-w-[260px] text-right text-amber-800">
+                  <span className="font-medium">Pernah diperbaiki</span>
+                  {booking.receipt_revision_reason && (
+                    <span className="mt-0.5 block text-xs text-neutral-700">
+                      {booking.receipt_revision_reason}
+                    </span>
+                  )}
+                </dd>
+              </div>
+            )}
           </dl>
         </div>
 
@@ -211,7 +232,7 @@ export function BookingDetailModal({
         )}
 
         {!isScheduled && (
-          <div className="mt-6 flex flex-wrap justify-end gap-3 border-t border-neutral-200 pt-4">
+          <div className="mt-6 flex flex-wrap justify-end gap-2.5 border-t border-neutral-200 pt-4">
             <button
               type="button"
               onClick={onClose}
@@ -219,6 +240,16 @@ export function BookingDetailModal({
             >
               Tutup
             </button>
+            {isCompleted && isAdmin && onEditReceipt && (
+              <button
+                type="button"
+                onClick={() => onEditReceipt(booking)}
+                className="inline-flex min-h-[44px] items-center gap-2 rounded-xl border border-neutral-200 bg-white px-4 py-2 text-sm font-medium text-neutral-800 hover:bg-neutral-50 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-amber-700 whitespace-nowrap"
+              >
+                <FilePenLine className="h-4 w-4 text-amber-700" />
+                <span>Perbaiki Resi</span>
+              </button>
+            )}
             {isCompleted && (
               <button
                 type="button"

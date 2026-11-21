@@ -4,6 +4,7 @@ import {
   BarChart3,
   Calendar,
   Database,
+  FilePenLine,
   Gift,
   Plus,
   Scissors,
@@ -19,7 +20,9 @@ import { ConfirmDialog } from './components/ConfirmDialog';
 import { DailyCalendarView } from './components/DailyCalendarView';
 import { DatabasePanel } from './components/DatabasePanel';
 import { LoyaltyView } from './components/LoyaltyView';
+import { ReceiptEditModal } from './components/ReceiptEditModal';
 import { ReceiptModal } from './components/ReceiptModal';
+import { ReceiptsView } from './components/ReceiptsView';
 import { RevenueSummaryView } from './components/RevenueSummaryView';
 import { ServicesView } from './components/ServicesView';
 import { TherapistsView } from './components/TherapistsView';
@@ -60,6 +63,7 @@ type ActiveTab =
   | 'therapists'
   | 'loyalty'
   | 'revenue'
+  | 'receipts'
   | 'accounts'
   | 'database';
 
@@ -148,6 +152,8 @@ export default function App() {
   const [editingBooking, setEditingBooking] = useState<Booking | null>(null);
   const [selectedBooking, setSelectedBooking] = useState<Booking | null>(null);
   const [receiptBooking, setReceiptBooking] = useState<Booking | null>(null);
+  const [editingReceiptBooking, setEditingReceiptBooking] = useState<Booking | null>(null);
+  const [reopenReceiptAfterEdit, setReopenReceiptAfterEdit] = useState(false);
   const [confirmDialog, setConfirmDialog] = useState<ConfirmDialogState | null>(null);
 
   useEffect(() => {
@@ -232,6 +238,8 @@ export default function App() {
     setAccountDb(null);
     setSelectedBooking(null);
     setReceiptBooking(null);
+    setEditingReceiptBooking(null);
+    setReopenReceiptAfterEdit(false);
     setEditingBooking(null);
     setPrefillCustomer(null);
     setFormOpen(false);
@@ -247,6 +255,8 @@ export default function App() {
     setAccountDb(null);
     setSelectedBooking(null);
     setReceiptBooking(null);
+    setEditingReceiptBooking(null);
+    setReopenReceiptAfterEdit(false);
     setPrefillCustomer(null);
     setNoticeMessage(null);
   };
@@ -282,6 +292,23 @@ export default function App() {
     setFormOpen(false);
     setEditingBooking(null);
     setPrefillCustomer(null);
+  };
+
+  const handleSaveReceiptCorrection = (updatedBooking: Booking) => {
+    updateActiveDatabase((prev) => ({
+      ...prev,
+      bookings: prev.bookings.map((b) =>
+        b.booking_id === updatedBooking.booking_id ? updatedBooking : b
+      ),
+    }));
+    setEditingReceiptBooking(null);
+    if (reopenReceiptAfterEdit) {
+      setReceiptBooking(updatedBooking);
+      setReopenReceiptAfterEdit(false);
+    }
+    setNoticeMessage(
+      `Resi RESI-${updatedBooking.booking_id} (${updatedBooking.patient_name}) berhasil diperbarui.`
+    );
   };
 
   const handleRequestStatusChange = (booking: Booking, nextStatus: BookingStatus) => {
@@ -618,6 +645,18 @@ export default function App() {
                   </button>
                   <button
                     type="button"
+                    onClick={() => setActiveTab('receipts')}
+                    className={`inline-flex min-h-[40px] shrink-0 items-center gap-1.5 whitespace-nowrap border-b-2 px-1 py-1.5 transition-colors focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-amber-700 ${
+                      activeTab === 'receipts'
+                        ? 'border-amber-700 text-amber-800'
+                        : 'border-transparent text-neutral-600 hover:text-neutral-900'
+                    }`}
+                  >
+                    <FilePenLine className="h-4 w-4" />
+                    <span>Perbaikan Resi</span>
+                  </button>
+                  <button
+                    type="button"
                     onClick={() => setActiveTab('database')}
                     className={`inline-flex min-h-[40px] shrink-0 items-center gap-1.5 whitespace-nowrap border-b-2 px-1 py-1.5 transition-colors focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-amber-700 ${
                       activeTab === 'database'
@@ -718,6 +757,19 @@ export default function App() {
           />
         )}
 
+        {isAdmin && activeTab === 'receipts' && (
+          <ReceiptsView
+            bookings={bookings}
+            services={services}
+            therapists={therapists}
+            onEditReceipt={(booking) => {
+              setReopenReceiptAfterEdit(false);
+              setEditingReceiptBooking(booking);
+            }}
+            onPrintReceipt={(booking) => setReceiptBooking(booking)}
+          />
+        )}
+
         {isAdmin && activeTab === 'accounts' && (
           <AccountsView
             accounts={workspaceAccounts}
@@ -778,7 +830,30 @@ export default function App() {
           setSelectedBooking(null);
           setReceiptBooking(booking);
         }}
+        onEditReceipt={
+          isAdmin
+            ? (booking) => {
+                setSelectedBooking(null);
+                setReopenReceiptAfterEdit(false);
+                setEditingReceiptBooking(booking);
+              }
+            : undefined
+        }
       />
+
+      {isAdmin && (
+        <ReceiptEditModal
+          booking={editingReceiptBooking}
+          services={services}
+          therapists={therapists}
+          allBookings={bookings}
+          onClose={() => {
+            setEditingReceiptBooking(null);
+            setReopenReceiptAfterEdit(false);
+          }}
+          onSaveCorrection={handleSaveReceiptCorrection}
+        />
+      )}
 
       <ConfirmDialog
         dialog={confirmDialog}
@@ -791,6 +866,15 @@ export default function App() {
       service={receiptService}
       therapist={receiptTherapist}
       onClose={() => setReceiptBooking(null)}
+      onEditReceipt={
+        isAdmin
+          ? (booking) => {
+              setReceiptBooking(null);
+              setReopenReceiptAfterEdit(true);
+              setEditingReceiptBooking(booking);
+            }
+          : undefined
+      }
     />
     </>
   );

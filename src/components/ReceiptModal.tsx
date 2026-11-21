@@ -1,6 +1,6 @@
 // Pratinjau resi pemesanan dengan unduh PDF serta cetak lewat sistem printer atau printer termal (FT-05).
 
-import { CheckCircle2, Download, Printer, Usb, X } from 'lucide-react';
+import { CheckCircle2, Download, FilePenLine, Printer, Usb, X } from 'lucide-react';
 import { useEffect, useMemo, useState } from 'react';
 import { CLINIC_LOGO_SRC } from '../config';
 import {
@@ -18,6 +18,7 @@ interface ReceiptModalProps {
   service?: Service;
   therapist?: Therapist;
   onClose: () => void;
+  onEditReceipt?: (booking: Booking) => void;
 }
 
 export function ReceiptModal({
@@ -25,6 +26,7 @@ export function ReceiptModal({
   service,
   therapist,
   onClose,
+  onEditReceipt,
 }: ReceiptModalProps) {
   const [printError, setPrintError] = useState<string | null>(null);
   const [isPrintingThermal, setIsPrintingThermal] = useState(false);
@@ -148,6 +150,14 @@ export function ReceiptModal({
                 {receipt.printedAtLabel}
               </dd>
             </div>
+            {receipt.isRevised && (
+              <div className="flex items-start justify-between gap-4">
+                <dt className="text-neutral-600">Diperbaiki</dt>
+                <dd className="text-right font-medium text-amber-800 tabular-nums">
+                  {receipt.revisedAtLabel ?? 'Ya'}
+                </dd>
+              </div>
+            )}
           </dl>
 
           <dl className="mt-4 space-y-2.5 border-b border-dashed border-neutral-300 pb-4 text-sm">
@@ -209,6 +219,14 @@ export function ReceiptModal({
                 </dd>
               </div>
             )}
+            {receipt.revisionReason && (
+              <div className="flex items-start justify-between gap-4">
+                <dt className="text-neutral-600">Ket. Revisi</dt>
+                <dd className="max-w-[210px] text-right text-neutral-900">
+                  {receipt.revisionReason}
+                </dd>
+              </div>
+            )}
           </dl>
 
           <div className="mt-4 flex items-center justify-between gap-4 border-b border-dashed border-neutral-300 pb-4">
@@ -245,6 +263,17 @@ export function ReceiptModal({
           </button>
 
           <div className="flex flex-wrap gap-2">
+            {onEditReceipt && booking && (
+              <button
+                type="button"
+                onClick={() => onEditReceipt(booking)}
+                className="inline-flex min-h-[44px] items-center gap-2 rounded-xl border border-neutral-200 bg-white px-4 py-2 text-sm font-medium text-neutral-800 hover:bg-neutral-50 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-amber-700 whitespace-nowrap"
+              >
+                <FilePenLine className="h-4 w-4 text-amber-700" />
+                <span>Perbaiki Resi</span>
+              </button>
+            )}
+
             <button
               type="button"
               onClick={() => downloadReceiptPdf(receipt)}

@@ -13,8 +13,12 @@ import {
   formatRupiah,
   formatTimeRange,
   formatWeekdayDateIndo,
+  normalizeIndoPhone,
+  parseDateParts,
 } from './format';
-import type { Booking, Service, Therapist } from './types';
+import { findCustomerLoyaltyByPhone, isStandardRewardService } from './loyalty';
+import { getEffectiveLocationType, isValidTimeFormat, validateOperatingHours } from './schedule';
+import type { Booking, LocationType, Service, Therapist } from './types';
 
 interface SerialPortLike {
   open: (options: { baudRate: number }) => Promise<void>;
@@ -46,6 +50,9 @@ export interface ReceiptData {
   isLoyaltyReward: boolean;
   priceAmount: number;
   formattedTotal: string;
+  isRevised: boolean;
+  revisedAtLabel?: string;
+  revisionReason?: string;
 }
 
 export function canPrintReceipt(booking: Booking | null | undefined): boolean {
@@ -85,6 +92,12 @@ export function buildReceiptData(params: {
         ? Math.max(0, Math.round(service.price))
         : 0;
 
+  const parsedRevised = booking.receipt_revised_at ? new Date(booking.receipt_revised_at) : null;
+  const revisedAtLabel =
+    parsedRevised && !Number.isNaN(parsedRevised.getTime())
+      ? formatReceiptPrintedAt(parsedRevised)
+      : undefined;
+
   return {
     receiptNumber: `RESI-${booking.booking_id}`,
     bookingId: booking.booking_id,
@@ -108,6 +121,9 @@ export function buildReceiptData(params: {
     isLoyaltyReward,
     priceAmount,
     formattedTotal: isLoyaltyReward ? 'Rp0 (Gratis Kesetiaan)' : formatRupiah(priceAmount),
+    isRevised: Boolean(booking.receipt_revised_at),
+    revisedAtLabel,
+    revisionReason: booking.receipt_revision_reason || undefined,
   };
 }
 
@@ -157,7 +173,10 @@ export function buildReceiptPdf(receipt: ReceiptData): jsPDF {
 
   drawRow('No. Resi', receipt.receiptNumber, true);
   drawRow('Waktu Cetak', receipt.printedAtLabel);
-  drawRow('Status', receipt.statusLabel, true);
+  drawRow('Status', receipt.isRevised ? `${receipt.statusLabel} (Diperbaiki)` : receipt.statusLabel, true);
+  if (receipt.revisedAtLabel) {
+    drawRow('Diperbaiki', receipt.revisedAtLabel);
+  }
 
   y += 1.5;
   doc.line(marginX, y, pageWidth - marginX, y);
@@ -179,6 +198,9 @@ export function buildReceiptPdf(receipt: ReceiptData): jsPDF {
   }
   if (receipt.notes) {
     drawRow('Catatan', receipt.notes);
+  }
+  if (receipt.revisionReason) {
+    drawRow('Ket. Revisi', receipt.revisionReason);
   }
 
   y += 2;
@@ -235,7 +257,7 @@ export function buildEscPosReceiptBytes(receipt: ReceiptData): Uint8Array {
     divider,
     formatEscPosLine('No. Resi', receipt.receiptNumber),
     formatEscPosLine('Cetak', receipt.printedAtLabel),
-    formatEscPosLine('Status', receipt.statusLabel),
+    formatEscPosLine('Status', receipt.isRevised ? `${receipt.statusLabel} (Revisi)` : receipt.statusLabel),
     divider,
     formatEscPosLine('Pasien', receipt.patientName),
     formatEscPosLine('HP', receipt.patientPhone),
@@ -252,6 +274,9 @@ export function buildEscPosReceiptBytes(receipt: ReceiptData): Uint8Array {
   }
   if (receipt.notes) {
     textLines.push(`Catatan: ${receipt.notes}`);
+  }
+  if (receipt.revisionReason) {
+    textLines.push(`Revisi: ${receipt.revisionReason}`);
   }
 
   textLines.push(
@@ -294,4 +319,161 @@ export async function printToThermalSerialPrinter(receipt: ReceiptData): Promise
     writer.releaseLock();
     await port.close();
   }
+}
+
+export interface ReceiptCorrectionInput {
+  patient_name: string;
+  patient_phone: string;
+  service_id: string;
+  therapist_id: string;
+  booking_date: string;
+  start_time: string;
+  location_type: LocationType;
+  patient_address: string;
+  is_loyalty_reward: boolean;
+  final_price: string;
+  notes: string;
+  revision_reason: string;
+}
+
+export type ReceiptCorrectionFieldName = keyof ReceiptCorrectionInput;
+
+export type ReceiptCorrectionErrors = Partial<Record<ReceiptCorrectionFieldName, string>>;
+
+export interface ReceiptCorrectionResult {
+  valid: boolean;
+  errors: ReceiptCorrectionErrors;
+  updatedBooking?: Booking;
+}
+
+export function validateAndApplyReceiptCorrection(params: {
+  booking: Booking;
+  input: ReceiptCorrectionInput;
+  services: Service[];
+  therapists: Therapist[];
+  allBookings: Booking[];
+  nowIso?: string;
+}): ReceiptCorrectionResult {
+  const { booking, input, services, therapists, allBookings, nowIso = new Date().toISOString() } =
+    params;
+
+  const errors: ReceiptCorrectionErrors = {};
+
+  if (!canPrintReceipt(booking)) {
+    errors.revision_reason = 'Perbaikan resi hanya berlaku untuk reservasi berstatus Selesai.';
+    return { valid: false, errors };
+  }
+
+  const trimmedName = input.patient_name.trim();
+  if (!trimmedName) {
+    errors.patient_name = 'Isi nama pasien terlebih dahulu, contoh: Budi Santoso.';
+  }
+
+  const normalizedPhone = normalizeIndoPhone(input.patient_phone);
+  if (!normalizedPhone) {
+    errors.patient_phone =
+      'Masukkan nomor WhatsApp/HP Indonesia yang valid, contoh: 081234567890 atau +6281234567890.';
+  }
+
+  const selectedService = services.find((s) => s.service_id === input.service_id);
+  if (!selectedService) {
+    errors.service_id = 'Pilih salah satu paket layanan Pijat atau Facial.';
+  }
+
+  const selectedTherapist = therapists.find((t) => t.therapist_id === input.therapist_id);
+  if (!selectedTherapist) {
+    errors.therapist_id = 'Pilih terapis yang menangani reservasi ini.';
+  }
+
+  if (!parseDateParts(input.booking_date)) {
+    errors.booking_date = 'Pilih tanggal layanan yang valid, contoh: 2026-11-20.';
+  }
+
+  let computedEndTime = booking.end_time;
+  if (selectedService) {
+    const hoursCheck = validateOperatingHours(input.start_time, selectedService.duration_minutes);
+    if (!hoursCheck.valid && hoursCheck.error) {
+      errors.start_time = hoursCheck.error;
+    } else {
+      computedEndTime = hoursCheck.endTime;
+    }
+  } else if (!isValidTimeFormat(input.start_time)) {
+    errors.start_time = 'Pilih jam mulai layanan antara 10.00 sampai 20.30.';
+  }
+
+  const effectiveLocationType = getEffectiveLocationType(selectedService, input.location_type);
+  const trimmedAddress = input.patient_address.trim();
+  if (
+    selectedService &&
+    selectedService.category === 'PIJAT' &&
+    effectiveLocationType === 'HOME_SERVICE' &&
+    !trimmedAddress
+  ) {
+    errors.patient_address =
+      'Alamat lengkap pasien wajib diisi untuk layanan Pijat di tempat pasien, contoh: Jl. Melati No. 12, Jakarta Selatan.';
+  }
+
+  if (input.is_loyalty_reward) {
+    if (!selectedService || !isStandardRewardService(selectedService.service_id, services)) {
+      errors.service_id =
+        'Hadiah gratis kesetiaan hanya berlaku untuk paket standar Pijat atau Facial.';
+    } else if (normalizedPhone) {
+      const loyalty = findCustomerLoyaltyByPhone(
+        normalizedPhone,
+        allBookings,
+        services,
+        booking.booking_id
+      );
+      if (!loyalty || loyalty.available_rewards_count <= 0) {
+        errors.is_loyalty_reward =
+          'Pelanggan ini belum memiliki hak hadiah gratis yang tersedia untuk ditukarkan.';
+      }
+    }
+  }
+
+  let resolvedFinalPrice = 0;
+  if (!input.is_loyalty_reward) {
+    const cleanPriceText = input.final_price.trim();
+    if (!/^\d+$/.test(cleanPriceText)) {
+      errors.final_price =
+        'Masukkan nominal total bayar berupa angka bulat tanpa titik/koma, contoh: 150000.';
+    } else {
+      const parsed = Number(cleanPriceText);
+      if (!Number.isSafeInteger(parsed) || parsed < 0 || parsed > 100_000_000) {
+        errors.final_price =
+          'Nominal total bayar harus antara Rp0 sampai Rp100.000.000, contoh: 150000.';
+      } else {
+        resolvedFinalPrice = parsed;
+      }
+    }
+  }
+
+  if (Object.keys(errors).length > 0 || !normalizedPhone || !selectedService) {
+    return { valid: false, errors };
+  }
+
+  const updatedBooking: Booking = {
+    ...booking,
+    patient_name: trimmedName,
+    patient_phone: normalizedPhone,
+    service_id: selectedService.service_id,
+    therapist_id: input.therapist_id,
+    booking_date: input.booking_date,
+    start_time: input.start_time,
+    end_time: computedEndTime,
+    location_type: effectiveLocationType,
+    patient_address: effectiveLocationType === 'HOME_SERVICE' ? trimmedAddress : '',
+    is_loyalty_reward: input.is_loyalty_reward,
+    final_price: resolvedFinalPrice,
+    notes: input.notes.trim(),
+    receipt_revised_at: nowIso,
+    receipt_revision_reason: input.revision_reason.trim() || undefined,
+    updated_at: nowIso,
+  };
+
+  return {
+    valid: true,
+    errors: {},
+    updatedBooking,
+  };
 }

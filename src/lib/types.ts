@@ -59,6 +59,10 @@ export interface Booking {
   is_loyalty_reward?: boolean;
   /** Harga akhir transaksi (0 bila memakai hadiah gratis kesetiaan). */
   final_price?: number;
+  /** Waktu terakhir resi diperbaiki setelah reservasi selesai (ISO string). */
+  receipt_revised_at?: string;
+  /** Alasan perbaikan resi (opsional). */
+  receipt_revision_reason?: string;
   created_at: string;
   updated_at: string;
 }
