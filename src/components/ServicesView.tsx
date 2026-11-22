@@ -2,7 +2,7 @@
 
 import { Download, Edit3, Package, Plus, ShoppingBag, X } from 'lucide-react';
 import { useMemo, useRef, useState } from 'react';
-import { CATEGORY_LABELS } from '../config';
+import { CATEGORY_LABELS, THERAPIST_COMMISSION_RATE } from '../config';
 import { exportProductSalesCsv } from '../lib/csvExport';
 import { formatDateIndo, formatRupiah, getTodayYYYYMMDD } from '../lib/format';
 import {
@@ -287,6 +287,7 @@ export function ServicesView({
     : 0;
   const previewTotal = Math.max(0, previewQty * previewPrice);
   const previewCommission = calculateProductSaleCommission(previewTotal);
+  const commissionPercent = Math.round(THERAPIST_COMMISSION_RATE * 100);
 
   return (
     <section className="space-y-6 rounded-2xl border border-neutral-200 bg-white p-4 md:p-6">
@@ -298,7 +299,7 @@ export function ServicesView({
           </h1>
           <p className="mt-1 text-sm text-neutral-600">
             Kelola paket Pijat, Facial, katalog produk, serta penjualan produk beromzet dengan komisi
-            terapis 10%.
+            terapis {commissionPercent}%.
           </p>
         </div>
 
@@ -478,7 +479,7 @@ export function ServicesView({
               </p>
             </div>
             <div className="p-4">
-              <p className="text-sm text-neutral-600">Komisi Terapis (10%)</p>
+              <p className="text-sm text-neutral-600">Komisi Terapis ({commissionPercent}%)</p>
               <p className="mt-1 text-2xl font-bold text-neutral-900 tabular-nums">
                 {formatRupiah(salesSummary.totalCommission)}
               </p>
@@ -491,7 +492,7 @@ export function ServicesView({
               <div>
                 <h2 className="text-lg font-semibold text-neutral-900">Riwayat Penjualan Produk</h2>
                 <p className="text-sm text-neutral-600">
-                  Otomatis masuk ke laporan pendapatan dan komisi 10% terapis penjual.
+                  Otomatis masuk ke laporan pendapatan dan komisi {commissionPercent}% terapis penjual.
                 </p>
               </div>
               <button
@@ -524,7 +525,9 @@ export function ServicesView({
                       <th className="px-4 py-3 font-semibold">Terapis Penjual</th>
                       <th className="px-4 py-3 text-right font-semibold">Qty</th>
                       <th className="px-4 py-3 text-right font-semibold">Omzet</th>
-                      <th className="px-4 py-3 text-right font-semibold">Komisi 10%</th>
+                      <th className="px-4 py-3 text-right font-semibold">
+                        Komisi {commissionPercent}%
+                      </th>
                       <th className="px-4 py-3 font-semibold">Status</th>
                       <th className="px-4 py-3 text-right font-semibold">Aksi</th>
                     </tr>
@@ -922,7 +925,7 @@ export function ServicesView({
                   Catat Penjualan Produk
                 </h2>
                 <p className="mt-0.5 text-sm text-neutral-600">
-                  Omzet otomatis masuk laporan dan terapis mendapat komisi 10%.
+                  Omzet otomatis masuk laporan dan terapis mendapat komisi {commissionPercent}%.
                 </p>
               </div>
               <button
@@ -1097,7 +1100,7 @@ export function ServicesView({
                   </span>
                 </div>
                 <div>
-                  <span className="text-neutral-600">Komisi Terapis (10%): </span>
+                  <span className="text-neutral-600">Komisi Terapis ({commissionPercent}%): </span>
                   <span className="font-bold text-amber-800 tabular-nums">
                     {formatRupiah(previewCommission)}
                   </span>

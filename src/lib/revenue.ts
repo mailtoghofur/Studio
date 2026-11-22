@@ -1,4 +1,4 @@
-// Logika perhitungan rekapitulasi pendapatan harian, mingguan, dan bulanan beserta komisi terapis 10% per transaksi (FT-08).
+// Logika perhitungan rekapitulasi pendapatan harian, mingguan, dan bulanan beserta komisi terapis 30% per transaksi (FT-08).
 
 import { THERAPIST_COMMISSION_RATE } from '../config';
 import { addDaysYYYYMMDD, formatDateIndo, getTodayYYYYMMDD, parseDateParts } from './format';

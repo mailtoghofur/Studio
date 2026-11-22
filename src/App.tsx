@@ -32,6 +32,7 @@ import {
   DEFAULT_PRODUCTS,
   STATUS_LABELS,
   STORAGE_KEY,
+  THERAPIST_COMMISSION_RATE,
 } from './config';
 import { ensureMasterAccountFlag, getWorkspaceOwnerId } from './lib/adminLock';
 import {
@@ -486,18 +487,20 @@ export default function App() {
     const therapistName =
       therapists.find((t) => t.therapist_id === sale.therapist_id)?.name ?? sale.therapist_id;
     const commission = calculateProductSaleCommission(sale.total_amount);
+    const commissionPercent = Math.round(THERAPIST_COMMISSION_RATE * 100);
     setNoticeMessage(
-      `Penjualan "${sale.product_name}" (${formatRupiah(sale.total_amount)}) dicatat. Komisi 10% ${therapistName}: ${formatRupiah(commission)}.`
+      `Penjualan "${sale.product_name}" (${formatRupiah(sale.total_amount)}) dicatat. Komisi ${commissionPercent}% ${therapistName}: ${formatRupiah(commission)}.`
     );
   };
 
   const handleRequestCancelProductSale = (sale: ProductSale) => {
     const therapistName =
       therapists.find((t) => t.therapist_id === sale.therapist_id)?.name ?? sale.therapist_id;
+    const commissionPercent = Math.round(THERAPIST_COMMISSION_RATE * 100);
     setConfirmDialog({
       title: 'Batalkan Penjualan Produk Ini?',
       message:
-        'Transaksi penjualan produk akan dibatalkan sehingga omzet dan komisi 10% terapis terkait tidak lagi dihitung.',
+        `Transaksi penjualan produk akan dibatalkan sehingga omzet dan komisi ${commissionPercent}% terapis terkait tidak lagi dihitung.`,
       details: [
         `Produk: ${sale.product_name} (${sale.quantity} item)`,
         `Terapis: ${therapistName}`,

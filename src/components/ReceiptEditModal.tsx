@@ -6,6 +6,7 @@ import {
   CATEGORY_LABELS,
   LOCATION_LABELS,
   LOYALTY_MILESTONE_COUNT,
+  THERAPIST_COMMISSION_RATE,
   TREATMENT_DISCOUNT_LABELS,
   TREATMENT_DISCOUNT_OPTIONS,
 } from '../config';
@@ -667,7 +668,8 @@ export function ReceiptEditModal({
                 </span>
               </div>
               <p className="mt-1 text-xs text-neutral-600">
-                Memengaruhi nominal resi, laporan pendapatan, serta komisi terapis 10%.
+                Memengaruhi nominal resi, laporan pendapatan, serta komisi terapis{' '}
+                {Math.round(THERAPIST_COMMISSION_RATE * 100)}%.
               </p>
               {errors.final_price && (
                 <p className="mt-1.5 flex items-start gap-1.5 text-sm text-red-700">

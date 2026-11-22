@@ -1,4 +1,4 @@
-// Logika katalog produk dan pencatatan penjualan produk oleh terapis beserta perhitungan komisi 10% (FT-02 & FT-08).
+// Logika katalog produk dan pencatatan penjualan produk oleh terapis beserta perhitungan komisi 30% (FT-02 & FT-08).
 
 import { THERAPIST_COMMISSION_RATE } from '../config';
 import { parseDateParts } from './format';

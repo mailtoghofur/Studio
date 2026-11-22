@@ -57,6 +57,8 @@ export function RevenueSummaryView({
     [periodType, referenceDate, referenceMonth, scope, bookings, services, therapists, productSales]
   );
 
+  const commissionPercent = Math.round(report.commissionRate * 100);
+
   const handlePrevPeriod = () => {
     if (periodType === 'DAILY') {
       setReferenceDate((d) => addDaysYYYYMMDD(d, -1));
@@ -95,7 +97,7 @@ export function RevenueSummaryView({
             Rekapitulasi Pendapatan
           </h1>
           <p className="mt-1 text-sm text-neutral-600">
-            Ringkasan pemasukan layanan harian, mingguan, bulanan, dan komisi terapis 10%.
+            Ringkasan pemasukan layanan harian, mingguan, bulanan, dan komisi terapis {commissionPercent}%.
           </p>
         </div>
 
@@ -251,7 +253,9 @@ export function RevenueSummaryView({
         </div>
 
         <div className="p-4">
-          <p className="text-sm font-medium text-neutral-600">Komisi Terapis (10%)</p>
+          <p className="text-sm font-medium text-neutral-600">
+            Komisi Terapis ({commissionPercent}%)
+          </p>
           <p className="mt-1 text-3xl font-semibold tracking-tight text-neutral-900 tabular-nums">
             {formatRupiah(report.totalCommission)}
           </p>
@@ -401,7 +405,9 @@ export function RevenueSummaryView({
                   <th className="px-4 py-3 text-right font-semibold">Transaksi</th>
                   <th className="px-4 py-3 text-right font-semibold">Terjual</th>
                   <th className="px-4 py-3 text-right font-semibold">Total Omzet</th>
-                  <th className="px-4 py-3 text-right font-semibold">Komisi 10%</th>
+                  <th className="px-4 py-3 text-right font-semibold">
+                    Komisi {commissionPercent}%
+                  </th>
                   <th className="px-4 py-3 text-right font-semibold">Porsi</th>
                 </tr>
               </thead>
@@ -459,7 +465,9 @@ export function RevenueSummaryView({
                         <th className="px-3.5 py-2.5 font-semibold">Pasien & Layanan</th>
                         <th className="px-3.5 py-2.5 font-semibold">Status</th>
                         <th className="px-3.5 py-2.5 text-right font-semibold">Nominal</th>
-                        <th className="px-3.5 py-2.5 text-right font-semibold">Komisi 10%</th>
+                        <th className="px-3.5 py-2.5 text-right font-semibold">
+                          Komisi {commissionPercent}%
+                        </th>
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-neutral-200">
@@ -528,7 +536,9 @@ export function RevenueSummaryView({
                         <th className="px-3.5 py-2.5 font-semibold">Terapis</th>
                         <th className="px-3.5 py-2.5 text-right font-semibold">Qty</th>
                         <th className="px-3.5 py-2.5 text-right font-semibold">Omzet</th>
-                        <th className="px-3.5 py-2.5 text-right font-semibold">Komisi 10%</th>
+                        <th className="px-3.5 py-2.5 text-right font-semibold">
+                          Komisi {commissionPercent}%
+                        </th>
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-neutral-200">
@@ -577,7 +587,9 @@ export function RevenueSummaryView({
                     </th>
                     <th className="px-3.5 py-2.5 text-right font-semibold">Sesi / Produk</th>
                     <th className="px-3.5 py-2.5 text-right font-semibold">Pendapatan</th>
-                    <th className="px-3.5 py-2.5 text-right font-semibold">Komisi 10%</th>
+                    <th className="px-3.5 py-2.5 text-right font-semibold">
+                      Komisi {commissionPercent}%
+                    </th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-neutral-200">
@@ -624,7 +636,9 @@ export function RevenueSummaryView({
                     <th className="px-3.5 py-2.5 font-semibold">Nama Terapis</th>
                     <th className="px-3.5 py-2.5 text-right font-semibold">Sesi / Produk</th>
                     <th className="px-3.5 py-2.5 text-right font-semibold">Omzet Total</th>
-                    <th className="px-3.5 py-2.5 text-right font-semibold">Komisi 10%</th>
+                    <th className="px-3.5 py-2.5 text-right font-semibold">
+                      Komisi {commissionPercent}%
+                    </th>
                     <th className="px-3.5 py-2.5 text-right font-semibold">Porsi</th>
                   </tr>
                 </thead>

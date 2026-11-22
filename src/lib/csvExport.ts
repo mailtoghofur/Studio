@@ -1,6 +1,6 @@
 // Utilitas ekspor data Terapis, Layanan, Reservasi, dan Rekap Pendapatan ke file CSV.
 
-import { CATEGORY_LABELS } from '../config';
+import { CATEGORY_LABELS, THERAPIST_COMMISSION_RATE } from '../config';
 import type { CustomerLoyaltySummary } from './loyalty';
 import type { RevenueReport } from './revenue';
 import type { Booking, ProductSale, Service, Therapist } from './types';
@@ -180,7 +180,7 @@ export function exportRevenueCsv(report: RevenueReport): void {
       'jumlah_sesi',
       'harga_satuan',
       'total_pendapatan',
-      'komisi_10_persen',
+      `komisi_${Math.round(report.commissionRate * 100)}_persen`,
       'porsi',
     ],
     rows
@@ -231,7 +231,7 @@ export function exportProductSalesCsv(
       'quantity',
       'unit_price',
       'total_amount',
-      'commission_10_persen',
+      `commission_${Math.round(THERAPIST_COMMISSION_RATE * 100)}_persen`,
       'status',
     ],
     sales.map((s) => [
@@ -243,7 +243,7 @@ export function exportProductSalesCsv(
       s.quantity,
       s.unit_price,
       s.total_amount,
-      s.status === 'CANCELLED' ? 0 : Math.round(s.total_amount * 0.1),
+      s.status === 'CANCELLED' ? 0 : Math.round(s.total_amount * THERAPIST_COMMISSION_RATE),
       s.status,
     ])
   );
