@@ -1,24 +1,33 @@
-// Layar masuk lokal dengan username dan kata sandi, pengaturan awal Admin Master, serta impor Paket Master lintas browser.
+// Layar masuk aplikasi klinik menggunakan akun Google (Cloud Firestore) atau akun lokal, serta impor Paket Master.
 
-import { Eye, EyeOff, RotateCcw, Upload } from 'lucide-react';
+import type { User } from 'firebase/auth';
+import { signInWithPopup } from 'firebase/auth';
+import { Cloud, Eye, EyeOff, RotateCcw, Upload } from 'lucide-react';
 import { useRef, useState } from 'react';
 import { CLINIC_LOGO_SRC, CLINIC_NAME } from '../config';
 import { createUserAccount, verifyAccountLogin } from '../lib/adminLock';
 import { parseMasterBundleJson, restoreMasterBundle } from '../lib/database';
+import { auth, googleAuthProvider } from '../lib/firebase';
 import type { UserAccount } from '../lib/types';
 
 interface AdminLockScreenProps {
   accounts: UserAccount[];
+  firebaseUser: User | null;
+  authReady: boolean;
   onLoginSuccess: (account: UserAccount) => void;
   onMasterSetupSuccess: (masterAccount: UserAccount) => void;
+  onGoogleLoginSuccess: (user: User) => Promise<void>;
   onImportMasterBundle: (restoredAccounts: UserAccount[]) => void;
   onResetAllData: () => void;
 }
 
 export function AdminLockScreen({
   accounts,
+  firebaseUser,
+  authReady,
   onLoginSuccess,
   onMasterSetupSuccess,
+  onGoogleLoginSuccess,
   onImportMasterBundle,
   onResetAllData,
 }: AdminLockScreenProps) {
@@ -38,11 +47,35 @@ export function AdminLockScreen({
     confirmPassword?: string;
   }>({});
   const [isProcessing, setIsProcessing] = useState(false);
+  const [isGoogleLoading, setIsGoogleLoading] = useState(false);
 
   const usernameRef = useRef<HTMLInputElement>(null);
   const passwordRef = useRef<HTMLInputElement>(null);
   const confirmRef = useRef<HTMLInputElement>(null);
   const bundleInputRef = useRef<HTMLInputElement>(null);
+
+  const handleGoogleSignIn = async () => {
+    setErrorMsg(null);
+    setInfoMsg(null);
+    setIsGoogleLoading(true);
+    try {
+      const userToUse =
+        firebaseUser && firebaseUser.emailVerified
+          ? firebaseUser
+          : (await signInWithPopup(auth, googleAuthProvider)).user;
+      await onGoogleLoginSuccess(userToUse);
+    } catch (err) {
+      const message =
+        err instanceof Error && err.message.includes('popup-closed-by-user')
+          ? 'Jendela masuk Google ditutup sebelum selesai.'
+          : err instanceof Error
+            ? err.message
+            : 'Gagal masuk dengan akun Google.';
+      setErrorMsg(message);
+    } finally {
+      setIsGoogleLoading(false);
+    }
+  };
 
   const handleInitialSetupSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -166,14 +199,30 @@ export function AdminLockScreen({
           <div>
             <p className="text-sm font-semibold text-amber-800">{CLINIC_NAME}</p>
             <h1 className="mt-0.5 text-2xl font-semibold text-neutral-900">
-              {isInitialSetup ? 'Atur Akun Admin Master' : 'Masuk Aplikasi Klinik'}
+              {isInitialSetup ? 'Masuk Aplikasi Klinik' : 'Masuk Aplikasi Klinik'}
             </h1>
             <p className="mt-1 text-sm text-neutral-600">
-              {isInitialSetup
-                ? 'Buat satu akun Admin Master untuk mengelola klinik dan akun staf.'
-                : 'Masukkan username dan kata sandi akun Admin Master, Admin, atau Terapis.'}
+              Gunakan akun Google untuk penyimpanan cloud atau akun klinik lokal.
             </p>
           </div>
+        </div>
+
+        <div className="mt-5">
+          <button
+            type="button"
+            disabled={!authReady || isGoogleLoading}
+            onClick={() => void handleGoogleSignIn()}
+            className="inline-flex min-h-[44px] w-full items-center justify-center gap-2.5 rounded-xl bg-amber-700 px-4 py-2.5 text-sm font-medium text-white hover:bg-amber-800 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-amber-700 disabled:opacity-60"
+          >
+            <Cloud className="h-4 w-4" />
+            <span>
+              {isGoogleLoading
+                ? 'Menghubungkan…'
+                : firebaseUser
+                  ? `Masuk sebagai ${firebaseUser.displayName || firebaseUser.email}`
+                  : 'Masuk dengan Google (Database Cloud)'}
+            </span>
+          </button>
         </div>
 
         {infoMsg && (
@@ -194,10 +243,16 @@ export function AdminLockScreen({
           </div>
         )}
 
+        <div className="mt-5 flex items-center gap-3">
+          <div className="h-px flex-1 bg-neutral-200" />
+          <span className="text-xs font-medium text-neutral-500">atau masuk lokal</span>
+          <div className="h-px flex-1 bg-neutral-200" />
+        </div>
+
         <form
           onSubmit={isInitialSetup ? handleInitialSetupSubmit : handleLoginSubmit}
           noValidate
-          className="mt-5 space-y-4"
+          className="mt-4 space-y-4"
         >
           {isInitialSetup && (
             <div>
@@ -298,13 +353,13 @@ export function AdminLockScreen({
           <button
             type="submit"
             disabled={isProcessing}
-            className="min-h-[44px] w-full rounded-xl bg-amber-700 px-4 py-2.5 text-sm font-medium text-white hover:bg-amber-800 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-amber-700 disabled:opacity-60"
+            className="min-h-[44px] w-full rounded-xl border border-neutral-200 bg-white px-4 py-2.5 text-sm font-medium text-neutral-800 hover:bg-neutral-50 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-amber-700 disabled:opacity-60"
           >
             {isProcessing
               ? 'Memproses…'
               : isInitialSetup
-                ? 'Buat Akun Master & Masuk'
-                : 'Masuk'}
+                ? 'Buat Akun Master Lokal'
+                : 'Masuk Akun Lokal'}
           </button>
         </form>
 

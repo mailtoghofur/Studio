@@ -1,6 +1,7 @@
-// Panel pengelolaan database terpisah milik akun aktif serta Paket Master (.json) untuk pindah browser tanpa Firebase.
+// Panel pengelolaan database akun, sinkronisasi Cloud Firestore, cadangan JSON, Paket Master, dan ekspor CSV.
 
-import { Database, Download, Package, RotateCcw, Upload } from 'lucide-react';
+import type { User } from 'firebase/auth';
+import { Cloud, CloudOff, Database, Download, Package, RefreshCw, RotateCcw, Upload } from 'lucide-react';
 import { useRef, useState } from 'react';
 import { exportBookingsCsv, exportServicesCsv, exportTherapistsCsv } from '../lib/csvExport';
 import {
@@ -14,6 +15,11 @@ import type { AccountDatabase, MasterBundlePayload, UserAccount } from '../lib/t
 interface DatabasePanelProps {
   database: AccountDatabase;
   allAccounts: UserAccount[];
+  firebaseUser: User | null;
+  isSyncingCloud: boolean;
+  onConnectGoogleCloud: () => Promise<void>;
+  onDisconnectGoogleCloud: () => Promise<void>;
+  onSyncLocalToCloud: () => Promise<void>;
   onRequestImportDatabase: (importedDb: AccountDatabase) => void;
   onRequestImportMasterBundle: (bundle: MasterBundlePayload) => void;
   onRequestResetDatabase: () => void;
@@ -38,12 +44,18 @@ function formatUpdatedAt(iso: string): string {
 export function DatabasePanel({
   database,
   allAccounts,
+  firebaseUser,
+  isSyncingCloud,
+  onConnectGoogleCloud,
+  onDisconnectGoogleCloud,
+  onSyncLocalToCloud,
   onRequestImportDatabase,
   onRequestImportMasterBundle,
   onRequestResetDatabase,
 }: DatabasePanelProps) {
   const [importError, setImportError] = useState<string | null>(null);
   const [bundleError, setBundleError] = useState<string | null>(null);
+  const [cloudError, setCloudError] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const bundleInputRef = useRef<HTMLInputElement>(null);
 
@@ -89,8 +101,83 @@ export function DatabasePanel({
     }
   };
 
+  const handleCloudAction = async (fn: () => Promise<void>) => {
+    setCloudError(null);
+    try {
+      await fn();
+    } catch (err) {
+      setCloudError(err instanceof Error ? err.message : 'Gagal menyinkronkan ke Cloud Firestore.');
+    }
+  };
+
   return (
     <div className="mx-auto max-w-3xl space-y-6">
+      {/* Sinkronisasi Cloud Firestore */}
+      <section className="rounded-2xl border border-neutral-200 bg-white p-6">
+        <div className="flex flex-wrap items-start justify-between gap-4">
+          <div className="flex items-start gap-3">
+            <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-amber-50 text-amber-800">
+              <Cloud className="h-5 w-5" />
+            </div>
+            <div>
+              <h2 className="text-lg font-semibold text-neutral-900">
+                Database Cloud (Firestore)
+              </h2>
+              <p className="mt-1 text-sm text-neutral-600">
+                {firebaseUser
+                  ? `Terhubung dengan akun Google ${firebaseUser.email || firebaseUser.displayName}. Data disinkronkan otomatis.`
+                  : 'Hubungkan akun Google Anda untuk menyimpan dan menyinkronkan data klinik secara aman ke Cloud Firestore.'}
+              </p>
+            </div>
+          </div>
+        </div>
+
+        {cloudError && (
+          <div
+            role="alert"
+            className="mt-4 rounded-xl border border-red-200 bg-red-50 p-3 text-sm text-red-800"
+          >
+            {cloudError}
+          </div>
+        )}
+
+        <div className="mt-4 flex flex-wrap gap-3">
+          {!firebaseUser ? (
+            <button
+              type="button"
+              disabled={isSyncingCloud}
+              onClick={() => void handleCloudAction(onConnectGoogleCloud)}
+              className="inline-flex min-h-[44px] items-center gap-2 rounded-xl bg-amber-700 px-4 py-2 text-sm font-medium text-white hover:bg-amber-800 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-amber-700 disabled:opacity-60 whitespace-nowrap"
+            >
+              <Cloud className="h-4 w-4" />
+              <span>{isSyncingCloud ? 'Menghubungkan…' : 'Hubungkan Akun Google'}</span>
+            </button>
+          ) : (
+            <>
+              <button
+                type="button"
+                disabled={isSyncingCloud}
+                onClick={() => void handleCloudAction(onSyncLocalToCloud)}
+                className="inline-flex min-h-[44px] items-center gap-2 rounded-xl bg-amber-700 px-4 py-2 text-sm font-medium text-white hover:bg-amber-800 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-amber-700 disabled:opacity-60 whitespace-nowrap"
+              >
+                <RefreshCw className={`h-4 w-4 ${isSyncingCloud ? 'animate-spin' : ''}`} />
+                <span>{isSyncingCloud ? 'Menyinkronkan…' : 'Sinkronkan ke Cloud'}</span>
+              </button>
+
+              <button
+                type="button"
+                disabled={isSyncingCloud}
+                onClick={() => void handleCloudAction(onDisconnectGoogleCloud)}
+                className="inline-flex min-h-[44px] items-center gap-2 rounded-xl border border-neutral-200 bg-white px-4 py-2 text-sm font-medium text-neutral-800 hover:bg-neutral-50 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-amber-700 disabled:opacity-60 whitespace-nowrap"
+              >
+                <CloudOff className="h-4 w-4" />
+                <span>Putus Koneksi Google</span>
+              </button>
+            </>
+          )}
+        </div>
+      </section>
+
       {/* Info Database Terpisah Akun Aktif */}
       <section className="rounded-2xl border border-neutral-200 bg-white p-6">
         <div className="flex flex-wrap items-start justify-between gap-4">
@@ -103,7 +190,7 @@ export function DatabasePanel({
                 Database Akun ({database.owner_username})
               </h1>
               <p className="mt-1 text-sm text-neutral-600">
-                Data terapis, layanan, dan reservasi disimpan terpisah di browser khusus untuk ruang kerja akun ini.
+                Ringkasan data terapis, layanan, dan reservasi pada ruang kerja aktif.
               </p>
             </div>
           </div>
@@ -199,7 +286,7 @@ export function DatabasePanel({
               Paket Master Multi-Browser (.json)
             </h2>
             <p className="mt-1 text-sm text-neutral-600">
-              Salin akun Master beserta seluruh akun dan database di dalamnya ke browser atau perangkat lain tanpa server.
+              Salin akun Master beserta seluruh akun dan database di dalamnya ke perangkat lain.
             </p>
           </div>
         </div>

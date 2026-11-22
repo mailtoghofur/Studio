@@ -16,9 +16,20 @@ import {
   normalizeIndoPhone,
   parseDateParts,
 } from './format';
+import {
+  calculateTreatmentDiscount,
+  getTreatmentDiscountLabel,
+  normalizeTreatmentDiscountPercent,
+} from './discount';
 import { findCustomerLoyaltyByPhone, isStandardRewardService } from './loyalty';
 import { getEffectiveLocationType, isValidTimeFormat, validateOperatingHours } from './schedule';
-import type { Booking, LocationType, Service, Therapist } from './types';
+import type {
+  Booking,
+  LocationType,
+  Service,
+  Therapist,
+  TreatmentDiscountPercent,
+} from './types';
 
 interface SerialPortLike {
   open: (options: { baudRate: number }) => Promise<void>;
@@ -48,6 +59,11 @@ export interface ReceiptData {
   patientAddress?: string;
   notes?: string;
   isLoyaltyReward: boolean;
+  basePriceAmount: number;
+  discountPercent: TreatmentDiscountPercent;
+  discountAmount: number;
+  formattedBasePrice: string;
+  formattedDiscount: string;
   priceAmount: number;
   formattedTotal: string;
   isRevised: boolean;
@@ -91,6 +107,21 @@ export function buildReceiptData(params: {
       : service
         ? Math.max(0, Math.round(service.price))
         : 0;
+  const discountPercent: TreatmentDiscountPercent = isLoyaltyReward
+    ? 0
+    : normalizeTreatmentDiscountPercent(booking.discount_percent);
+  const basePriceAmount = isLoyaltyReward
+    ? 0
+    : service
+      ? Math.max(0, Math.round(service.price))
+      : priceAmount;
+  const discountAmount = isLoyaltyReward
+    ? 0
+    : typeof booking.discount_amount === 'number' && Number.isFinite(booking.discount_amount)
+      ? Math.max(0, Math.round(booking.discount_amount))
+      : discountPercent > 0
+        ? Math.round(basePriceAmount * (discountPercent / 100))
+        : 0;
 
   const parsedRevised = booking.receipt_revised_at ? new Date(booking.receipt_revised_at) : null;
   const revisedAtLabel =
@@ -119,6 +150,14 @@ export function buildReceiptData(params: {
         : undefined,
     notes: booking.notes ? booking.notes : undefined,
     isLoyaltyReward,
+    basePriceAmount,
+    discountPercent,
+    discountAmount,
+    formattedBasePrice: formatRupiah(basePriceAmount),
+    formattedDiscount:
+      discountPercent > 0 && discountAmount > 0
+        ? `${getTreatmentDiscountLabel(discountPercent)} (-${formatRupiah(discountAmount)})`
+        : getTreatmentDiscountLabel(0),
     priceAmount,
     formattedTotal: isLoyaltyReward ? 'Rp0 (Gratis Kesetiaan)' : formatRupiah(priceAmount),
     isRevised: Boolean(booking.receipt_revised_at),
@@ -202,6 +241,10 @@ export function buildReceiptPdf(receipt: ReceiptData): jsPDF {
   if (receipt.revisionReason) {
     drawRow('Ket. Revisi', receipt.revisionReason);
   }
+  if (!receipt.isLoyaltyReward && receipt.discountPercent > 0 && receipt.discountAmount > 0) {
+    drawRow('Harga Paket', receipt.formattedBasePrice);
+    drawRow('Diskon', receipt.formattedDiscount);
+  }
 
   y += 2;
   doc.line(marginX, y, pageWidth - marginX, y);
@@ -278,6 +321,10 @@ export function buildEscPosReceiptBytes(receipt: ReceiptData): Uint8Array {
   if (receipt.revisionReason) {
     textLines.push(`Revisi: ${receipt.revisionReason}`);
   }
+  if (!receipt.isLoyaltyReward && receipt.discountPercent > 0 && receipt.discountAmount > 0) {
+    textLines.push(formatEscPosLine('Harga Paket', receipt.formattedBasePrice));
+    textLines.push(formatEscPosLine('Diskon', `${receipt.discountPercent}% (-${formatRupiah(receipt.discountAmount)})`));
+  }
 
   textLines.push(
     divider,
@@ -331,6 +378,7 @@ export interface ReceiptCorrectionInput {
   location_type: LocationType;
   patient_address: string;
   is_loyalty_reward: boolean;
+  discount_percent: TreatmentDiscountPercent;
   final_price: string;
   notes: string;
   revision_reason: string;
@@ -432,7 +480,10 @@ export function validateAndApplyReceiptCorrection(params: {
   }
 
   let resolvedFinalPrice = 0;
+  let resolvedDiscountPercent: TreatmentDiscountPercent = 0;
+  let resolvedDiscountAmount = 0;
   if (!input.is_loyalty_reward) {
+    resolvedDiscountPercent = normalizeTreatmentDiscountPercent(input.discount_percent);
     const cleanPriceText = input.final_price.trim();
     if (!/^\d+$/.test(cleanPriceText)) {
       errors.final_price =
@@ -444,6 +495,18 @@ export function validateAndApplyReceiptCorrection(params: {
           'Nominal total bayar harus antara Rp0 sampai Rp100.000.000, contoh: 150000.';
       } else {
         resolvedFinalPrice = parsed;
+        if (selectedService && resolvedDiscountPercent > 0) {
+          const calc = calculateTreatmentDiscount({
+            basePrice: selectedService.price,
+            discountPercent: resolvedDiscountPercent,
+          });
+          if (calc.finalPrice === parsed) {
+            resolvedDiscountAmount = calc.discountAmount;
+          } else {
+            resolvedDiscountPercent = 0;
+            resolvedDiscountAmount = 0;
+          }
+        }
       }
     }
   }
@@ -464,6 +527,8 @@ export function validateAndApplyReceiptCorrection(params: {
     location_type: effectiveLocationType,
     patient_address: effectiveLocationType === 'HOME_SERVICE' ? trimmedAddress : '',
     is_loyalty_reward: input.is_loyalty_reward,
+    discount_percent: resolvedDiscountPercent,
+    discount_amount: resolvedDiscountAmount,
     final_price: resolvedFinalPrice,
     notes: input.notes.trim(),
     receipt_revised_at: nowIso,

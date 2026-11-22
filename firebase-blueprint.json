@@ -1,0 +1,607 @@
+{
+  "entities": {
+    "Workspace": {
+      "title": "Workspace",
+      "description": "Ruang kerja klinik milik pengguna Google terverifikasi yang menjadi induk seluruh data penjadwalan, layanan, produk, dan terapis.",
+      "type": "object",
+      "properties": {
+        "workspaceId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$",
+          "description": "ID ruang kerja yang sama dengan UID pemilik."
+        },
+        "ownerId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$",
+          "description": "UID Firebase Auth pemilik ruang kerja."
+        },
+        "clinicName": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 100,
+          "description": "Nama klinik."
+        },
+        "ownerName": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 100,
+          "description": "Nama tampilan pemilik akun Google."
+        },
+        "ownerEmail": {
+          "type": "string",
+          "format": "email",
+          "minLength": 3,
+          "maxLength": 160,
+          "description": "Email Google terverifikasi pemilik ruang kerja (PII)."
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Timestamp server saat ruang kerja dibuat."
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Timestamp server saat ruang kerja terakhir diperbarui."
+        }
+      },
+      "required": [
+        "workspaceId",
+        "ownerId",
+        "clinicName",
+        "ownerName",
+        "ownerEmail",
+        "createdAt",
+        "updatedAt"
+      ]
+    },
+    "Therapist": {
+      "title": "Therapist",
+      "description": "Profil terapis aktif atau nonaktif pada ruang kerja klinik.",
+      "type": "object",
+      "properties": {
+        "therapist_id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 64,
+          "pattern": "^[a-zA-Z0-9_\\-]+$",
+          "description": "ID unik terapis."
+        },
+        "ownerId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$",
+          "description": "UID pemilik ruang kerja."
+        },
+        "workspaceId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$",
+          "description": "ID ruang kerja induk."
+        },
+        "name": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 100,
+          "description": "Nama lengkap terapis."
+        },
+        "is_active": {
+          "type": "boolean",
+          "description": "Status keaktifan terapis."
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Timestamp server pembuatan terapis."
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Timestamp server pembaruan terapis."
+        }
+      },
+      "required": [
+        "therapist_id",
+        "ownerId",
+        "workspaceId",
+        "name",
+        "is_active",
+        "createdAt",
+        "updatedAt"
+      ]
+    },
+    "Service": {
+      "title": "Service",
+      "description": "Paket layanan pijat atau facial pada ruang kerja klinik.",
+      "type": "object",
+      "properties": {
+        "service_id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 64,
+          "pattern": "^[a-zA-Z0-9_\\-]+$",
+          "description": "ID unik layanan."
+        },
+        "ownerId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$",
+          "description": "UID pemilik ruang kerja."
+        },
+        "workspaceId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$",
+          "description": "ID ruang kerja induk."
+        },
+        "category": {
+          "type": "string",
+          "enum": ["PIJAT", "FACIAL"],
+          "description": "Kategori layanan klinik."
+        },
+        "service_name": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 120,
+          "description": "Nama paket layanan."
+        },
+        "duration_minutes": {
+          "type": "integer",
+          "description": "Durasi layanan dalam menit (15 sampai 480)."
+        },
+        "price": {
+          "type": "number",
+          "description": "Harga paket layanan dalam Rupiah bulat."
+        },
+        "allow_home_service": {
+          "type": "boolean",
+          "description": "Menentukan apakah layanan tersedia untuk panggilan ke tempat pasien."
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Timestamp server pembuatan layanan."
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Timestamp server pembaruan layanan."
+        }
+      },
+      "required": [
+        "service_id",
+        "ownerId",
+        "workspaceId",
+        "category",
+        "service_name",
+        "duration_minutes",
+        "price",
+        "allow_home_service",
+        "createdAt",
+        "updatedAt"
+      ]
+    },
+    "Product": {
+      "title": "Product",
+      "description": "Produk perawatan yang dijual di klinik dengan komisi terapis 10 persen.",
+      "type": "object",
+      "properties": {
+        "product_id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 64,
+          "pattern": "^[a-zA-Z0-9_\\-]+$",
+          "description": "ID unik produk."
+        },
+        "ownerId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$",
+          "description": "UID pemilik ruang kerja."
+        },
+        "workspaceId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$",
+          "description": "ID ruang kerja induk."
+        },
+        "product_name": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 120,
+          "description": "Nama produk perawatan."
+        },
+        "price": {
+          "type": "number",
+          "description": "Harga jual satuan produk dalam Rupiah bulat."
+        },
+        "is_active": {
+          "type": "boolean",
+          "description": "Status ketersediaan produk."
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Timestamp server pembuatan produk."
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Timestamp server pembaruan produk."
+        }
+      },
+      "required": [
+        "product_id",
+        "ownerId",
+        "workspaceId",
+        "product_name",
+        "price",
+        "is_active",
+        "createdAt",
+        "updatedAt"
+      ]
+    },
+    "Booking": {
+      "title": "Booking",
+      "description": "Data reservasi pasien, status penyelesaian treatment, diskon pilihan, hadiah kesetiaan, dan catatan perbaikan resi.",
+      "type": "object",
+      "properties": {
+        "booking_id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 64,
+          "pattern": "^[a-zA-Z0-9_\\-]+$",
+          "description": "ID unik reservasi."
+        },
+        "ownerId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$",
+          "description": "UID pemilik ruang kerja."
+        },
+        "workspaceId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$",
+          "description": "ID ruang kerja induk."
+        },
+        "patient_name": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 120,
+          "description": "Nama pasien (PII)."
+        },
+        "patient_phone": {
+          "type": "string",
+          "minLength": 6,
+          "maxLength": 32,
+          "pattern": "^[0-9+]+$",
+          "description": "Nomor telepon atau WhatsApp pasien (PII)."
+        },
+        "service_id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 64,
+          "pattern": "^[a-zA-Z0-9_\\-]+$",
+          "description": "Referensi ID layanan."
+        },
+        "therapist_id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 64,
+          "pattern": "^[a-zA-Z0-9_\\-]+$",
+          "description": "Referensi ID terapis."
+        },
+        "booking_date": {
+          "type": "string",
+          "minLength": 10,
+          "maxLength": 10,
+          "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}$",
+          "description": "Tanggal jadwal YYYY-MM-DD."
+        },
+        "start_time": {
+          "type": "string",
+          "minLength": 5,
+          "maxLength": 5,
+          "pattern": "^[0-9]{2}:[0-9]{2}$",
+          "description": "Jam mulai HH:MM."
+        },
+        "end_time": {
+          "type": "string",
+          "minLength": 5,
+          "maxLength": 5,
+          "pattern": "^[0-9]{2}:[0-9]{2}$",
+          "description": "Jam selesai HH:MM."
+        },
+        "location_type": {
+          "type": "string",
+          "enum": ["CLINIC", "HOME_SERVICE"],
+          "description": "Lokasi layanan klinik atau ke rumah pasien."
+        },
+        "patient_address": {
+          "type": "string",
+          "maxLength": 300,
+          "description": "Alamat pasien untuk layanan di tempat pasien (PII)."
+        },
+        "notes": {
+          "type": "string",
+          "maxLength": 500,
+          "description": "Catatan tambahan reservasi."
+        },
+        "status": {
+          "type": "string",
+          "enum": ["SCHEDULED", "COMPLETED", "CANCELLED"],
+          "description": "Status jadwal reservasi."
+        },
+        "is_loyalty_reward": {
+          "type": "boolean",
+          "description": "Menandai reservasi gratis poin kesetiaan ke-10."
+        },
+        "discount_percent": {
+          "type": "integer",
+          "enum": [0, 10, 20],
+          "description": "Persentase diskon penyelesaian treatment."
+        },
+        "discount_amount": {
+          "type": "number",
+          "description": "Nominal potongan diskon dalam Rupiah bulat."
+        },
+        "final_price": {
+          "type": "number",
+          "description": "Total harga akhir transaksi dalam Rupiah bulat."
+        },
+        "receipt_revised_at": {
+          "type": "string",
+          "maxLength": 40,
+          "description": "Waktu ISO perbaikan resi atau string kosong jika belum diperbaiki."
+        },
+        "receipt_revision_reason": {
+          "type": "string",
+          "maxLength": 300,
+          "description": "Alasan perbaikan resi atau string kosong."
+        },
+        "created_at_iso": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 40,
+          "description": "Waktu pembuatan format ISO untuk resi dan ekspor."
+        },
+        "updated_at_iso": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 40,
+          "description": "Waktu pembaruan format ISO untuk resi dan ekspor."
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Timestamp server pembuatan reservasi."
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Timestamp server pembaruan reservasi."
+        }
+      },
+      "required": [
+        "booking_id",
+        "ownerId",
+        "workspaceId",
+        "patient_name",
+        "patient_phone",
+        "service_id",
+        "therapist_id",
+        "booking_date",
+        "start_time",
+        "end_time",
+        "location_type",
+        "patient_address",
+        "notes",
+        "status",
+        "is_loyalty_reward",
+        "discount_percent",
+        "discount_amount",
+        "final_price",
+        "receipt_revised_at",
+        "receipt_revision_reason",
+        "created_at_iso",
+        "updated_at_iso",
+        "createdAt",
+        "updatedAt"
+      ]
+    },
+    "ProductSale": {
+      "title": "ProductSale",
+      "description": "Transaksi penjualan produk oleh terapis yang dihitung ke omzet dan komisi 10 persen.",
+      "type": "object",
+      "properties": {
+        "sale_id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 64,
+          "pattern": "^[a-zA-Z0-9_\\-]+$",
+          "description": "ID unik transaksi penjualan produk."
+        },
+        "ownerId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$",
+          "description": "UID pemilik ruang kerja."
+        },
+        "workspaceId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$",
+          "description": "ID ruang kerja induk."
+        },
+        "product_id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 64,
+          "pattern": "^[a-zA-Z0-9_\\-]+$",
+          "description": "Referensi ID produk."
+        },
+        "product_name": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 120,
+          "description": "Nama produk saat dijual."
+        },
+        "therapist_id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 64,
+          "pattern": "^[a-zA-Z0-9_\\-]+$",
+          "description": "Referensi ID terapis penjual."
+        },
+        "buyer_name": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 120,
+          "description": "Nama pembeli produk."
+        },
+        "quantity": {
+          "type": "integer",
+          "description": "Jumlah item produk terjual (1 sampai 1000)."
+        },
+        "unit_price": {
+          "type": "number",
+          "description": "Harga satuan produk saat penjualan."
+        },
+        "total_amount": {
+          "type": "number",
+          "description": "Total omzet penjualan produk."
+        },
+        "sale_date": {
+          "type": "string",
+          "minLength": 10,
+          "maxLength": 10,
+          "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}$",
+          "description": "Tanggal penjualan YYYY-MM-DD."
+        },
+        "notes": {
+          "type": "string",
+          "maxLength": 500,
+          "description": "Catatan tambahan penjualan produk."
+        },
+        "status": {
+          "type": "string",
+          "enum": ["COMPLETED", "CANCELLED"],
+          "description": "Status transaksi penjualan produk."
+        },
+        "created_at_iso": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 40,
+          "description": "Waktu pembuatan format ISO."
+        },
+        "updated_at_iso": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 40,
+          "description": "Waktu pembaruan format ISO."
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Timestamp server pembuatan transaksi."
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Timestamp server pembaruan transaksi."
+        }
+      },
+      "required": [
+        "sale_id",
+        "ownerId",
+        "workspaceId",
+        "product_id",
+        "product_name",
+        "therapist_id",
+        "buyer_name",
+        "quantity",
+        "unit_price",
+        "total_amount",
+        "sale_date",
+        "notes",
+        "status",
+        "created_at_iso",
+        "updated_at_iso",
+        "createdAt",
+        "updatedAt"
+      ]
+    },
+    "AdminMember": {
+      "title": "AdminMember",
+      "description": "Daftar UID admin sistem yang disetujui untuk akses pemulihan dan audit.",
+      "type": "object",
+      "properties": {
+        "uid": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$",
+          "description": "UID admin terverifikasi."
+        },
+        "email": {
+          "type": "string",
+          "format": "email",
+          "minLength": 3,
+          "maxLength": 160,
+          "description": "Email admin (PII)."
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Timestamp server pendaftaran admin."
+        }
+      },
+      "required": ["uid", "email", "createdAt"]
+    }
+  },
+  "firestore": {
+    "/workspaces/{workspaceId}": {
+      "schema": { "$ref": "#/entities/Workspace" },
+      "description": "Dokumen induk ruang kerja klinik milik pengguna Google terverifikasi."
+    },
+    "/workspaces/{workspaceId}/therapists/{therapistId}": {
+      "schema": { "$ref": "#/entities/Therapist" },
+      "description": "Subkoleksi daftar terapis dalam ruang kerja."
+    },
+    "/workspaces/{workspaceId}/services/{serviceId}": {
+      "schema": { "$ref": "#/entities/Service" },
+      "description": "Subkoleksi katalog paket layanan dalam ruang kerja."
+    },
+    "/workspaces/{workspaceId}/products/{productId}": {
+      "schema": { "$ref": "#/entities/Product" },
+      "description": "Subkoleksi katalog produk penjualan dalam ruang kerja."
+    },
+    "/workspaces/{workspaceId}/bookings/{bookingId}": {
+      "schema": { "$ref": "#/entities/Booking" },
+      "description": "Subkoleksi jadwal reservasi, diskon treatment, dan perbaikan resi."
+    },
+    "/workspaces/{workspaceId}/product_sales/{saleId}": {
+      "schema": { "$ref": "#/entities/ProductSale" },
+      "description": "Subkoleksi catatan penjualan produk dan komisi terapis."
+    },
+    "/admins/{uid}": {
+      "schema": { "$ref": "#/entities/AdminMember" },
+      "description": "Daftar admin sistem terpercaya."
+    }
+  }
+}

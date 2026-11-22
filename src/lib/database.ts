@@ -1,11 +1,18 @@
 // Sistem database sederhana di browser yang tersimpan terpisah sesuai akun pemilik (owner_account_id), termasuk paket ekspor/impor Master lintas browser.
 
-import { DB_KEY_PREFIX, DEFAULT_SERVICES, DEFAULT_THERAPISTS } from '../config';
+import {
+  DB_KEY_PREFIX,
+  DEFAULT_PRODUCTS,
+  DEFAULT_SERVICES,
+  DEFAULT_THERAPISTS,
+} from '../config';
 import { ensureMasterAccountFlag, getWorkspaceOwnerId } from './adminLock';
 import type {
   AccountDatabase,
   Booking,
   MasterBundlePayload,
+  Product,
+  ProductSale,
   Service,
   Therapist,
   UserAccount,
@@ -22,6 +29,8 @@ function createFreshDatabase(
     therapists?: Therapist[];
     services?: Service[];
     bookings?: Booking[];
+    products?: Product[];
+    product_sales?: ProductSale[];
   }
 ): AccountDatabase {
   return {
@@ -37,6 +46,11 @@ function createFreshDatabase(
         ? seed.services
         : DEFAULT_SERVICES.map((s) => ({ ...s })),
     bookings: seed?.bookings ? [...seed.bookings] : [],
+    products:
+      seed?.products && seed.products.length > 0
+        ? seed.products
+        : DEFAULT_PRODUCTS.map((p) => ({ ...p })),
+    product_sales: seed?.product_sales ? [...seed.product_sales] : [],
     updated_at: new Date().toISOString(),
   };
 }
@@ -48,6 +62,8 @@ export function loadAccountDatabase(
     therapists?: Therapist[];
     services?: Service[];
     bookings?: Booking[];
+    products?: Product[];
+    product_sales?: ProductSale[];
   }
 ): AccountDatabase {
   const key = getDatabaseStorageKey(ownerAccountId);
@@ -72,6 +88,11 @@ export function loadAccountDatabase(
               ? parsed.services
               : DEFAULT_SERVICES.map((s) => ({ ...s })),
           bookings: Array.isArray(parsed.bookings) ? parsed.bookings : [],
+          products:
+            Array.isArray(parsed.products) && parsed.products.length > 0
+              ? parsed.products
+              : DEFAULT_PRODUCTS.map((p) => ({ ...p })),
+          product_sales: Array.isArray(parsed.product_sales) ? parsed.product_sales : [],
           updated_at:
             typeof parsed.updated_at === 'string'
               ? parsed.updated_at
@@ -178,6 +199,11 @@ export function parseAccountDatabaseJson(
         ? parsed.services
         : DEFAULT_SERVICES.map((s) => ({ ...s })),
     bookings: parsed.bookings,
+    products:
+      Array.isArray(parsed.products) && parsed.products.length > 0
+        ? parsed.products
+        : DEFAULT_PRODUCTS.map((p) => ({ ...p })),
+    product_sales: Array.isArray(parsed.product_sales) ? parsed.product_sales : [],
     updated_at: new Date().toISOString(),
   };
 }
@@ -278,6 +304,11 @@ export function parseMasterBundleJson(rawText: string): MasterBundlePayload {
             ? candidate.services
             : DEFAULT_SERVICES.map((s) => ({ ...s })),
         bookings: candidate.bookings,
+        products:
+          Array.isArray(candidate.products) && candidate.products.length > 0
+            ? candidate.products
+            : DEFAULT_PRODUCTS.map((p) => ({ ...p })),
+        product_sales: Array.isArray(candidate.product_sales) ? candidate.product_sales : [],
         updated_at: candidate.updated_at || new Date().toISOString(),
       };
     } else {

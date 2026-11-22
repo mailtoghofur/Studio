@@ -1,6 +1,6 @@
 // Formulir pembuatan dan penjadwalan ulang reservasi dengan validasi slot real-time (FT-03 dan FT-04).
 
-import { AlertCircle, CheckCircle2, Gift, Home, Lock, MapPin, X } from 'lucide-react';
+import { AlertCircle, CheckCircle2, Gift, Home, Lock, MapPin, Search, X } from 'lucide-react';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { CATEGORY_LABELS, LOCATION_LABELS, LOYALTY_MILESTONE_COUNT } from '../config';
 import { formatDateIndo, formatRupiah, formatTimeDisplay } from '../lib/format';
@@ -10,6 +10,7 @@ import {
   isStandardRewardService,
 } from '../lib/loyalty';
 import {
+  filterServicesByQuery,
   generateTimeSlotOptions,
   getEffectiveLocationType,
   getTherapistAvailabilities,
@@ -35,6 +36,7 @@ interface BookingFormModalProps {
   initialDate: string;
   initialStartTime?: string;
   initialTherapistId?: string;
+  initialServiceId?: string;
   initialCustomer?: {
     patientName: string;
     patientPhone: string;
@@ -58,6 +60,7 @@ export function BookingFormModal({
   initialDate,
   initialStartTime = '10:00',
   initialTherapistId = '',
+  initialServiceId = '',
   initialCustomer = null,
   editingBooking = null,
   onRequestSave,
@@ -75,6 +78,7 @@ export function BookingFormModal({
     notes: '',
   });
   const [useLoyaltyReward, setUseLoyaltyReward] = useState(false);
+  const [serviceSearch, setServiceSearch] = useState('');
   const [errors, setErrors] = useState<BookingValidationErrors>({});
 
   const patientNameRef = useRef<HTMLInputElement>(null);
@@ -90,6 +94,7 @@ export function BookingFormModal({
   useEffect(() => {
     if (!isOpen) return;
     setErrors({});
+    setServiceSearch('');
     if (editingBooking) {
       setForm({
         patient_name: editingBooking.patient_name,
@@ -110,10 +115,16 @@ export function BookingFormModal({
         standardServices.FACIAL?.service_id ??
         services[0]?.service_id ??
         '';
+      const preferredServiceId =
+        !wantReward && initialServiceId && services.some((s) => s.service_id === initialServiceId)
+          ? initialServiceId
+          : wantReward
+            ? stdDefaultId
+            : (services[0]?.service_id ?? '');
       setForm({
         patient_name: initialCustomer?.patientName ?? '',
         patient_phone: initialCustomer?.patientPhone ?? '',
-        service_id: wantReward ? stdDefaultId : (services[0]?.service_id ?? ''),
+        service_id: preferredServiceId,
         location_type: 'CLINIC',
         patient_address: '',
         booking_date: initialDate,
@@ -129,6 +140,7 @@ export function BookingFormModal({
     initialDate,
     initialStartTime,
     initialTherapistId,
+    initialServiceId,
     initialCustomer,
     services,
     standardServices,
@@ -158,10 +170,31 @@ export function BookingFormModal({
     }
   }, [canUseLoyaltyReward, useLoyaltyReward]);
 
-  const availableServicesForDropdown = useMemo(() => {
+  const baseServicesForDropdown = useMemo(() => {
     if (!effectiveRewardMode) return services;
     return services.filter((s) => isStandardRewardService(s.service_id, services));
   }, [effectiveRewardMode, services]);
+
+  const availableServicesForDropdown = useMemo(
+    () => filterServicesByQuery(baseServicesForDropdown, serviceSearch),
+    [baseServicesForDropdown, serviceSearch]
+  );
+
+  useEffect(() => {
+    if (!isOpen) return;
+    if (availableServicesForDropdown.length === 0) return;
+    const stillVisible = availableServicesForDropdown.some(
+      (s) => s.service_id === form.service_id
+    );
+    if (!stillVisible) {
+      const firstMatch = availableServicesForDropdown[0];
+      setForm((prev) => ({
+        ...prev,
+        service_id: firstMatch.service_id,
+        location_type: firstMatch.category === 'FACIAL' ? 'CLINIC' : prev.location_type,
+      }));
+    }
+  }, [isOpen, availableServicesForDropdown, form.service_id]);
 
   const selectedService = useMemo(
     () => services.find((s) => s.service_id === form.service_id),
@@ -449,55 +482,97 @@ export function BookingFormModal({
             </div>
           )}
 
-          {/* Pilihan Layanan */}
-          <div>
-            <label htmlFor="service_id" className="block text-sm font-medium text-neutral-800">
-              {effectiveRewardMode ? 'Paket Standar Gratis' : 'Paket Layanan'}{' '}
-              <span className="text-red-700">*</span>
-            </label>
-            <select
-              ref={serviceRef}
-              id="service_id"
-              name="service_id"
-              value={form.service_id}
-              onChange={(e) => {
-                const nextSvc = services.find((s) => s.service_id === e.target.value);
-                setForm((prev) => ({
-                  ...prev,
-                  service_id: e.target.value,
-                  location_type:
-                    nextSvc?.category === 'FACIAL' ? 'CLINIC' : prev.location_type,
-                }));
-              }}
-              className="mt-1.5 min-h-[44px] w-full rounded-xl border border-neutral-200 bg-white px-3.5 py-2 text-base text-neutral-900 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-amber-700"
-            >
-              {availableServicesForDropdown.length === 0 && (
-                <option value="">Belum ada layanan</option>
+          {/* Pencarian & Pilihan Layanan */}
+          <div className="space-y-3">
+            <div>
+              <label
+                htmlFor="booking-service-search"
+                className="block text-sm font-medium text-neutral-800"
+              >
+                Cari Layanan
+              </label>
+              <div className="relative mt-1.5 flex items-center">
+                <Search className="pointer-events-none absolute left-3 h-4 w-4 text-neutral-500" />
+                <input
+                  id="booking-service-search"
+                  name="bookingServiceSearch"
+                  type="search"
+                  value={serviceSearch}
+                  onChange={(e) => setServiceSearch(e.target.value)}
+                  placeholder="Ketik nama paket, Pijat, Facial, atau durasi…"
+                  className="min-h-[44px] w-full rounded-xl border border-neutral-200 bg-white pr-10 pl-9 text-base text-neutral-900 placeholder:text-neutral-500 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-amber-700"
+                />
+                {serviceSearch && (
+                  <button
+                    type="button"
+                    onClick={() => setServiceSearch('')}
+                    aria-label="Hapus pencarian layanan"
+                    className="absolute right-1.5 flex h-9 w-9 items-center justify-center rounded-lg text-neutral-500 hover:bg-neutral-100 hover:text-neutral-900 focus-visible:outline-2 focus-visible:outline-amber-700"
+                  >
+                    <X className="h-4 w-4" />
+                  </button>
+                )}
+              </div>
+              {serviceSearch.trim() && (
+                <p className="mt-1 text-xs text-neutral-600 tabular-nums">
+                  {availableServicesForDropdown.length > 0
+                    ? `Menampilkan ${availableServicesForDropdown.length} dari ${baseServicesForDropdown.length} layanan.`
+                    : 'Tidak ada layanan yang cocok dengan kata kunci tersebut.'}
+                </p>
               )}
-              {massageServices.length > 0 && (
-                <optgroup label={CATEGORY_LABELS.PIJAT}>
-                  {massageServices.map((s) => (
-                    <option key={s.service_id} value={s.service_id}>
-                      {s.service_name} ({s.duration_minutes} menit ·{' '}
-                      {effectiveRewardMode ? 'Rp0 Gratis' : formatRupiah(s.price)})
-                    </option>
-                  ))}
-                </optgroup>
+            </div>
+
+            <div>
+              <label htmlFor="service_id" className="block text-sm font-medium text-neutral-800">
+                {effectiveRewardMode ? 'Paket Standar Gratis' : 'Paket Layanan'}{' '}
+                <span className="text-red-700">*</span>
+              </label>
+              <select
+                ref={serviceRef}
+                id="service_id"
+                name="service_id"
+                value={form.service_id}
+                onChange={(e) => {
+                  const nextSvc = services.find((s) => s.service_id === e.target.value);
+                  setForm((prev) => ({
+                    ...prev,
+                    service_id: e.target.value,
+                    location_type:
+                      nextSvc?.category === 'FACIAL' ? 'CLINIC' : prev.location_type,
+                  }));
+                }}
+                className="mt-1.5 min-h-[44px] w-full rounded-xl border border-neutral-200 bg-white px-3.5 py-2 text-base text-neutral-900 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-amber-700"
+              >
+                {availableServicesForDropdown.length === 0 && (
+                  <option value="">
+                    {serviceSearch.trim() ? 'Tidak ada layanan cocok' : 'Belum ada layanan'}
+                  </option>
+                )}
+                {massageServices.length > 0 && (
+                  <optgroup label={CATEGORY_LABELS.PIJAT}>
+                    {massageServices.map((s) => (
+                      <option key={s.service_id} value={s.service_id}>
+                        {s.service_name} ({s.duration_minutes} menit ·{' '}
+                        {effectiveRewardMode ? 'Rp0 Gratis' : formatRupiah(s.price)})
+                      </option>
+                    ))}
+                  </optgroup>
+                )}
+                {facialServices.length > 0 && (
+                  <optgroup label={CATEGORY_LABELS.FACIAL}>
+                    {facialServices.map((s) => (
+                      <option key={s.service_id} value={s.service_id}>
+                        {s.service_name} ({s.duration_minutes} menit ·{' '}
+                        {effectiveRewardMode ? 'Rp0 Gratis' : formatRupiah(s.price)})
+                      </option>
+                    ))}
+                  </optgroup>
+                )}
+              </select>
+              {errors.service_id && (
+                <p className="mt-1.5 text-sm text-red-700">{errors.service_id}</p>
               )}
-              {facialServices.length > 0 && (
-                <optgroup label={CATEGORY_LABELS.FACIAL}>
-                  {facialServices.map((s) => (
-                    <option key={s.service_id} value={s.service_id}>
-                      {s.service_name} ({s.duration_minutes} menit ·{' '}
-                      {effectiveRewardMode ? 'Rp0 Gratis' : formatRupiah(s.price)})
-                    </option>
-                  ))}
-                </optgroup>
-              )}
-            </select>
-            {errors.service_id && (
-              <p className="mt-1.5 text-sm text-red-700">{errors.service_id}</p>
-            )}
+            </div>
           </div>
 
           {/* Lokasi Layanan (BL-04) */}

@@ -229,6 +229,23 @@ export function ReceiptModal({
             )}
           </dl>
 
+          {!receipt.isLoyaltyReward && receipt.discountPercent > 0 && receipt.discountAmount > 0 && (
+            <dl className="mt-4 space-y-2 border-b border-dashed border-neutral-300 pb-4 text-sm">
+              <div className="flex items-start justify-between gap-4">
+                <dt className="text-neutral-600">Harga Paket</dt>
+                <dd className="text-right text-neutral-900 tabular-nums">
+                  {receipt.formattedBasePrice}
+                </dd>
+              </div>
+              <div className="flex items-start justify-between gap-4">
+                <dt className="text-neutral-600">Status Diskon</dt>
+                <dd className="text-right font-medium text-emerald-800 tabular-nums">
+                  {receipt.formattedDiscount}
+                </dd>
+              </div>
+            </dl>
+          )}
+
           <div className="mt-4 flex items-center justify-between gap-4 border-b border-dashed border-neutral-300 pb-4">
             <span className="text-sm font-semibold text-neutral-900">Total Bayar</span>
             <span className="text-2xl font-bold text-neutral-900 tabular-nums">

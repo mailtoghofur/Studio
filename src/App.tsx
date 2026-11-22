@@ -1,5 +1,6 @@
-// Komponen utama aplikasi penjadwalan Naomi Beauty & Wellness dengan login lokal sederhana dan database terpisah per akun.
+// Komponen utama aplikasi penjadwalan Naomi Beauty & Wellness dengan autentikasi Google/lokal serta sinkronisasi Cloud Firestore.
 
+import { onAuthStateChanged, signInWithPopup, signOut, type User } from 'firebase/auth';
 import {
   BarChart3,
   Calendar,
@@ -10,7 +11,7 @@ import {
   Scissors,
   Users,
 } from 'lucide-react';
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { AccountMenu } from './components/AccountMenu';
 import { AccountsView } from './components/AccountsView';
 import { AdminLockScreen } from './components/AdminLockScreen';
@@ -29,6 +30,7 @@ import { TherapistsView } from './components/TherapistsView';
 import {
   CLINIC_LOGO_SRC,
   CLINIC_NAME,
+  DEFAULT_PRODUCTS,
   STATUS_LABELS,
   STORAGE_KEY,
 } from './config';
@@ -42,18 +44,41 @@ import {
   saveAccountDatabase,
 } from './lib/database';
 import {
+  calculateTreatmentDiscount,
+  normalizeTreatmentDiscountPercent,
+} from './lib/discount';
+import { createUserAccount } from './lib/adminLock';
+import { auth, googleAuthProvider } from './lib/firebase';
+import {
+  ensureWorkspaceInitialized,
+  resetFirestoreBookingsAndSales,
+  saveBookingToFirestore,
+  saveProductSaleToFirestore,
+  saveProductToFirestore,
+  saveServiceToFirestore,
+  saveTherapistToFirestore,
+  saveTherapistsToFirestore,
+  subscribeWorkspaceCollections,
+  syncLocalDatabaseToFirestore,
+} from './lib/firestoreWorkspace';
+import {
   formatDateIndo,
+  formatRupiah,
   formatTimeRange,
   getTodayYYYYMMDD,
 } from './lib/format';
+import { calculateProductSaleCommission } from './lib/products';
 import type {
   AccountDatabase,
   Booking,
   BookingStatus,
   ConfirmDialogState,
   MasterBundlePayload,
+  Product,
+  ProductSale,
   Service,
   Therapist,
+  TreatmentDiscountPercent,
   UserAccount,
 } from './lib/types';
 
@@ -143,6 +168,7 @@ export default function App() {
   const [prefillSlot, setPrefillSlot] = useState<{
     therapistId?: string;
     startTime?: string;
+    serviceId?: string;
   }>({});
   const [prefillCustomer, setPrefillCustomer] = useState<{
     patientName: string;
@@ -155,6 +181,28 @@ export default function App() {
   const [editingReceiptBooking, setEditingReceiptBooking] = useState<Booking | null>(null);
   const [reopenReceiptAfterEdit, setReopenReceiptAfterEdit] = useState(false);
   const [confirmDialog, setConfirmDialog] = useState<ConfirmDialogState | null>(null);
+
+  const [firebaseUser, setFirebaseUser] = useState<User | null>(null);
+  const [authReady, setAuthReady] = useState(false);
+  const [isSyncingCloud, setIsSyncingCloud] = useState(false);
+  const [firestoreFatalError, setFirestoreFatalError] = useState<Error | null>(null);
+  const accountDbRef = useRef<AccountDatabase | null>(null);
+
+  if (firestoreFatalError) {
+    throw firestoreFatalError;
+  }
+
+  useEffect(() => {
+    accountDbRef.current = accountDb;
+  }, [accountDb]);
+
+  useEffect(() => {
+    const unsubscribe = onAuthStateChanged(auth, (user) => {
+      setFirebaseUser(user);
+      setAuthReady(true);
+    });
+    return () => unsubscribe();
+  }, []);
 
   useEffect(() => {
     saveAccountsToStorage(accounts);
@@ -179,6 +227,101 @@ export default function App() {
     );
     setAccountDb(db);
   }, [currentAccount, currentOwnerId, accounts]);
+
+  useEffect(() => {
+    if (!authReady || !firebaseUser || !firebaseUser.emailVerified || !currentAccountId) {
+      return;
+    }
+
+    let cancelled = false;
+    let unsubscribeCollections: (() => void) | null = null;
+
+    const connectFirestore = async () => {
+      setIsSyncingCloud(true);
+      try {
+        await ensureWorkspaceInitialized(firebaseUser, accountDbRef.current);
+        if (cancelled) return;
+        unsubscribeCollections = subscribeWorkspaceCollections(firebaseUser.uid, {
+          onTherapists: (therapists) => {
+            setAccountDb((prev) => {
+              if (!prev) return prev;
+              const next: AccountDatabase = {
+                ...prev,
+                therapists,
+                updated_at: new Date().toISOString(),
+              };
+              saveAccountDatabase(next);
+              return next;
+            });
+          },
+          onServices: (services) => {
+            setAccountDb((prev) => {
+              if (!prev) return prev;
+              const next: AccountDatabase = {
+                ...prev,
+                services,
+                updated_at: new Date().toISOString(),
+              };
+              saveAccountDatabase(next);
+              return next;
+            });
+          },
+          onProducts: (products) => {
+            setAccountDb((prev) => {
+              if (!prev) return prev;
+              const next: AccountDatabase = {
+                ...prev,
+                products,
+                updated_at: new Date().toISOString(),
+              };
+              saveAccountDatabase(next);
+              return next;
+            });
+          },
+          onBookings: (bookings) => {
+            setAccountDb((prev) => {
+              if (!prev) return prev;
+              const next: AccountDatabase = {
+                ...prev,
+                bookings,
+                updated_at: new Date().toISOString(),
+              };
+              saveAccountDatabase(next);
+              return next;
+            });
+          },
+          onProductSales: (product_sales) => {
+            setAccountDb((prev) => {
+              if (!prev) return prev;
+              const next: AccountDatabase = {
+                ...prev,
+                product_sales,
+                updated_at: new Date().toISOString(),
+              };
+              saveAccountDatabase(next);
+              return next;
+            });
+          },
+          onError: (err) => {
+            if (!cancelled) setFirestoreFatalError(err);
+          },
+        });
+      } catch (err) {
+        if (!cancelled) {
+          setFirestoreFatalError(err instanceof Error ? err : new Error(String(err)));
+        }
+      } finally {
+        if (!cancelled) setIsSyncingCloud(false);
+      }
+    };
+
+    void connectFirestore();
+
+    return () => {
+      cancelled = true;
+      if (unsubscribeCollections) unsubscribeCollections();
+    };
+  }, [authReady, firebaseUser, currentAccountId]);
 
   const workspaceAccounts = useMemo(() => {
     if (!currentAccount || !currentOwnerId) return [];
@@ -205,6 +348,52 @@ export default function App() {
       saveAccountDatabase(next);
       return next;
     });
+  };
+
+  const runCloudMutation = (task: () => Promise<void>) => {
+    if (!firebaseUser || !firebaseUser.emailVerified) return;
+    void task().catch((err) => {
+      setFirestoreFatalError(err instanceof Error ? err : new Error(String(err)));
+    });
+  };
+
+  const handleGoogleLoginSuccess = async (user: User) => {
+    const existingGoogleAccount = accounts.find((a) => a.account_id === `GOOGLE-${user.uid}`);
+    const masterAdmin = accounts.find((a) => a.role === 'ADMIN' && a.is_master);
+
+    if (existingGoogleAccount) {
+      const ownerId = getWorkspaceOwnerId(existingGoogleAccount);
+      const ownerAcc = accounts.find((a) => a.account_id === ownerId);
+      const db = loadAccountDatabase(ownerId, ownerAcc?.username ?? existingGoogleAccount.username);
+      setCurrentAccountId(existingGoogleAccount.account_id);
+      setAccountDb(db);
+      setActiveTab('calendar');
+      setNoticeMessage(`Masuk dengan Google (${user.email || existingGoogleAccount.display_name}).`);
+      return;
+    }
+
+    const googleUsername = (user.email?.split('@')[0] || 'admin.google')
+      .replace(/[^a-zA-Z0-9._-]/g, '_')
+      .slice(0, 32);
+    const createdAcc = await createUserAccount({
+      account_id: `GOOGLE-${user.uid}`,
+      username: googleUsername.length >= 3 ? googleUsername : `google_${user.uid.slice(0, 6)}`,
+      display_name: user.displayName || user.email || 'Admin Google',
+      password: `${user.uid}_${Date.now()}`,
+      role: 'ADMIN',
+      owner_account_id: masterAdmin ? getWorkspaceOwnerId(masterAdmin) : undefined,
+      is_master: !masterAdmin,
+    });
+
+    const ownerId = getWorkspaceOwnerId(createdAcc);
+    const ownerAcc = accounts.find((a) => a.account_id === ownerId);
+    const db = loadAccountDatabase(ownerId, ownerAcc?.username ?? createdAcc.username, legacySeed);
+    setLegacySeed(undefined);
+    setAccounts((prev) => [...prev, createdAcc]);
+    setCurrentAccountId(createdAcc.account_id);
+    setAccountDb(db);
+    setActiveTab('calendar');
+    setNoticeMessage(`Terhubung dengan akun Google (${user.email || createdAcc.display_name}).`);
   };
 
   const handleMasterSetupSuccess = (masterAccount: UserAccount) => {
@@ -234,6 +423,9 @@ export default function App() {
   };
 
   const handleSignOut = () => {
+    if (currentAccountId?.startsWith('GOOGLE-')) {
+      void signOut(auth);
+    }
     setCurrentAccountId(null);
     setAccountDb(null);
     setSelectedBooking(null);
@@ -261,10 +453,14 @@ export default function App() {
     setNoticeMessage(null);
   };
 
-  const handleOpenCreateModal = (therapistId?: string, startTime?: string) => {
+  const handleOpenCreateModal = (
+    therapistId?: string,
+    startTime?: string,
+    serviceId?: string
+  ) => {
     setEditingBooking(null);
     setPrefillCustomer(null);
-    setPrefillSlot({ therapistId, startTime });
+    setPrefillSlot({ therapistId, startTime, serviceId });
     setFormOpen(true);
   };
 
@@ -282,6 +478,10 @@ export default function App() {
           ? prev.bookings.map((b) => (b.booking_id === booking.booking_id ? booking : b))
           : [...prev.bookings, booking],
     }));
+
+    runCloudMutation(() =>
+      saveBookingToFirestore(firebaseUser!.uid, booking, mode === 'reschedule' ? 'reschedule' : 'create')
+    );
 
     if (mode === 'reschedule') {
       setNoticeMessage(`Jadwal ${booking.patient_name} berhasil diperbarui.`);
@@ -301,6 +501,7 @@ export default function App() {
         b.booking_id === updatedBooking.booking_id ? updatedBooking : b
       ),
     }));
+    runCloudMutation(() => saveBookingToFirestore(firebaseUser!.uid, updatedBooking, 'revise'));
     setEditingReceiptBooking(null);
     if (reopenReceiptAfterEdit) {
       setReceiptBooking(updatedBooking);
@@ -311,28 +512,58 @@ export default function App() {
     );
   };
 
-  const handleRequestStatusChange = (booking: Booking, nextStatus: BookingStatus) => {
+  const handleRequestStatusChange = (
+    booking: Booking,
+    nextStatus: BookingStatus,
+    discountPercent: TreatmentDiscountPercent = 0
+  ) => {
     const isCancel = nextStatus === 'CANCELLED';
     const nextLabel = STATUS_LABELS[nextStatus];
 
     const applyStatus = async () => {
-      const updatedBooking: Booking = {
-        ...booking,
-        status: nextStatus,
-        updated_at: new Date().toISOString(),
-      };
+      const now = new Date().toISOString();
+      let updatedBooking: Booking;
+
+      if (nextStatus === 'COMPLETED') {
+        const matchedService = accountDb?.services.find(
+          (s) => s.service_id === booking.service_id
+        );
+        const discountCalc = calculateTreatmentDiscount({
+          basePrice: matchedService?.price ?? 0,
+          discountPercent: normalizeTreatmentDiscountPercent(discountPercent),
+          isLoyaltyReward: Boolean(booking.is_loyalty_reward),
+        });
+        updatedBooking = {
+          ...booking,
+          status: nextStatus,
+          discount_percent: discountCalc.discountPercent,
+          discount_amount: discountCalc.discountAmount,
+          final_price: discountCalc.finalPrice,
+          updated_at: now,
+        };
+        setSelectedBooking(updatedBooking);
+        setNoticeMessage(
+          discountCalc.discountPercent > 0
+            ? `Status reservasi ${booking.patient_name} diubah menjadi Selesai (Diskon ${discountCalc.discountPercent}%, total ${formatRupiah(discountCalc.finalPrice)}).`
+            : `Status reservasi ${booking.patient_name} diubah menjadi ${nextLabel}.`
+        );
+      } else {
+        updatedBooking = {
+          ...booking,
+          status: nextStatus,
+          updated_at: now,
+        };
+        setSelectedBooking(null);
+        setNoticeMessage(`Status reservasi ${booking.patient_name} diubah menjadi ${nextLabel}.`);
+      }
+
       updateActiveDatabase((prev) => ({
         ...prev,
         bookings: prev.bookings.map((b) =>
           b.booking_id === booking.booking_id ? updatedBooking : b
         ),
       }));
-      if (nextStatus === 'COMPLETED') {
-        setSelectedBooking(updatedBooking);
-      } else {
-        setSelectedBooking(null);
-      }
-      setNoticeMessage(`Status reservasi ${booking.patient_name} diubah menjadi ${nextLabel}.`);
+      runCloudMutation(() => saveBookingToFirestore(firebaseUser!.uid, updatedBooking, 'status'));
     };
 
     if (!isCancel) {
@@ -363,6 +594,7 @@ export default function App() {
         ? prev.services.map((s) => (s.service_id === service.service_id ? service : s))
         : [...prev.services, service],
     }));
+    runCloudMutation(() => saveServiceToFirestore(firebaseUser!.uid, service));
     setNoticeMessage(
       isEdit
         ? `Layanan "${service.service_name}" berhasil diperbarui.`
@@ -370,11 +602,74 @@ export default function App() {
     );
   };
 
+  const handleRequestSaveProduct = (mode: 'create' | 'edit', product: Product) => {
+    const isEdit = mode === 'edit';
+    updateActiveDatabase((prev) => {
+      const existingProducts = prev.products ?? DEFAULT_PRODUCTS.map((p) => ({ ...p }));
+      return {
+        ...prev,
+        products: isEdit
+          ? existingProducts.map((p) => (p.product_id === product.product_id ? product : p))
+          : [...existingProducts, product],
+      };
+    });
+    runCloudMutation(() => saveProductToFirestore(firebaseUser!.uid, product));
+    setNoticeMessage(
+      isEdit
+        ? `Produk "${product.product_name}" berhasil diperbarui.`
+        : `Produk "${product.product_name}" berhasil ditambahkan.`
+    );
+  };
+
+  const handleRequestAddProductSale = (sale: ProductSale) => {
+    updateActiveDatabase((prev) => ({
+      ...prev,
+      product_sales: [...(prev.product_sales ?? []), sale],
+    }));
+    runCloudMutation(() => saveProductSaleToFirestore(firebaseUser!.uid, sale, 'create'));
+    const therapistName =
+      therapists.find((t) => t.therapist_id === sale.therapist_id)?.name ?? sale.therapist_id;
+    const commission = calculateProductSaleCommission(sale.total_amount);
+    setNoticeMessage(
+      `Penjualan "${sale.product_name}" (${formatRupiah(sale.total_amount)}) dicatat. Komisi 10% ${therapistName}: ${formatRupiah(commission)}.`
+    );
+  };
+
+  const handleRequestCancelProductSale = (sale: ProductSale) => {
+    const therapistName =
+      therapists.find((t) => t.therapist_id === sale.therapist_id)?.name ?? sale.therapist_id;
+    setConfirmDialog({
+      title: 'Batalkan Penjualan Produk Ini?',
+      message:
+        'Transaksi penjualan produk akan dibatalkan sehingga omzet dan komisi 10% terapis terkait tidak lagi dihitung.',
+      details: [
+        `Produk: ${sale.product_name} (${sale.quantity} item)`,
+        `Terapis: ${therapistName}`,
+        `Omzet: ${formatRupiah(sale.total_amount)}`,
+      ],
+      confirmLabel: 'Ya, Batalkan Penjualan',
+      tone: 'danger',
+      onConfirm: async () => {
+        const now = new Date().toISOString();
+        const cancelledSale: ProductSale = { ...sale, status: 'CANCELLED', updated_at: now };
+        updateActiveDatabase((prev) => ({
+          ...prev,
+          product_sales: (prev.product_sales ?? []).map((item) =>
+            item.sale_id === sale.sale_id ? cancelledSale : item
+          ),
+        }));
+        runCloudMutation(() => saveProductSaleToFirestore(firebaseUser!.uid, cancelledSale, 'cancel'));
+        setNoticeMessage(`Penjualan produk "${sale.product_name}" dibatalkan.`);
+      },
+    });
+  };
+
   const handleRequestSaveTherapists = (nextTherapists: Therapist[]) => {
     updateActiveDatabase((prev) => ({
       ...prev,
       therapists: nextTherapists,
     }));
+    runCloudMutation(() => saveTherapistsToFirestore(firebaseUser!.uid, nextTherapists));
     setNoticeMessage('Data terapis berhasil diperbarui.');
   };
 
@@ -383,6 +678,7 @@ export default function App() {
       ...prev,
       therapists: [...prev.therapists, newTherapist],
     }));
+    runCloudMutation(() => saveTherapistToFirestore(firebaseUser!.uid, newTherapist));
     setNoticeMessage(
       `Terapis "${newTherapist.name}" berhasil ditambahkan. Buka Manajemen Akun untuk membuatkan akun login.`
     );
@@ -448,7 +744,10 @@ export default function App() {
       onConfirm: async () => {
         saveAccountDatabase(importedDb);
         setAccountDb(importedDb);
-        setNoticeMessage('Database akun berhasil dipulihkan dari file JSON.');
+        if (firebaseUser && firebaseUser.emailVerified) {
+          await syncLocalDatabaseToFirestore(firebaseUser, importedDb);
+        }
+        setNoticeMessage('Database akun berhasil dipulihkan.');
       },
     });
   };
@@ -476,7 +775,11 @@ export default function App() {
         } else {
           const ownerId = getWorkspaceOwnerId(matchingActive);
           const ownerAcc = restoredAccounts.find((a) => a.account_id === ownerId);
-          setAccountDb(loadAccountDatabase(ownerId, ownerAcc?.username ?? matchingActive.username));
+          const restoredDb = loadAccountDatabase(ownerId, ownerAcc?.username ?? matchingActive.username);
+          setAccountDb(restoredDb);
+          if (firebaseUser && firebaseUser.emailVerified) {
+            await syncLocalDatabaseToFirestore(firebaseUser, restoredDb);
+          }
         }
         setNoticeMessage('Paket Master berhasil dipulihkan.');
       },
@@ -497,17 +800,52 @@ export default function App() {
           accountDb.owner_username
         );
         setAccountDb(fresh);
+        if (firebaseUser && firebaseUser.emailVerified) {
+          await resetFirestoreBookingsAndSales(firebaseUser, fresh);
+        }
         setNoticeMessage('Database akun telah direset ke pengaturan awal.');
       },
     });
+  };
+
+  const handleConnectGoogleCloud = async () => {
+    setIsSyncingCloud(true);
+    try {
+      const cred = await signInWithPopup(auth, googleAuthProvider);
+      if (accountDb) {
+        await syncLocalDatabaseToFirestore(cred.user, accountDb);
+      }
+      setNoticeMessage(`Terhubung ke Cloud Firestore (${cred.user.email || cred.user.displayName}).`);
+    } finally {
+      setIsSyncingCloud(false);
+    }
+  };
+
+  const handleDisconnectGoogleCloud = async () => {
+    await signOut(auth);
+    setNoticeMessage('Koneksi akun Google ke Cloud Firestore diputus.');
+  };
+
+  const handleSyncLocalToCloud = async () => {
+    if (!firebaseUser || !accountDb) return;
+    setIsSyncingCloud(true);
+    try {
+      await syncLocalDatabaseToFirestore(firebaseUser, accountDb);
+      setNoticeMessage('Data klinik berhasil disinkronkan ke Cloud Firestore.');
+    } finally {
+      setIsSyncingCloud(false);
+    }
   };
 
   if (!currentAccount || !accountDb) {
     return (
       <AdminLockScreen
         accounts={accounts}
+        firebaseUser={firebaseUser}
+        authReady={authReady}
         onLoginSuccess={handleLoginSuccess}
         onMasterSetupSuccess={handleMasterSetupSuccess}
+        onGoogleLoginSuccess={handleGoogleLoginSuccess}
         onImportMasterBundle={(restoredAccounts) => {
           setAccounts(restoredAccounts);
           setLegacySeed(undefined);
@@ -518,6 +856,8 @@ export default function App() {
   }
 
   const { therapists, services, bookings } = accountDb;
+  const products = accountDb.products ?? DEFAULT_PRODUCTS;
+  const productSales = accountDb.product_sales ?? [];
   const selectedBookingService = selectedBooking
     ? services.find((s) => s.service_id === selectedBooking.service_id)
     : undefined;
@@ -714,6 +1054,11 @@ export default function App() {
             onCreateAtSlot={(therapistId, startTime) =>
               handleOpenCreateModal(therapistId, startTime)
             }
+            onCreateWithService={
+              isAdmin
+                ? (serviceId) => handleOpenCreateModal(undefined, '10:00', serviceId)
+                : undefined
+            }
             onSelectBooking={(booking) => setSelectedBooking(booking)}
           />
         )}
@@ -721,7 +1066,14 @@ export default function App() {
         {isAdmin && activeTab === 'services' && (
           <ServicesView
             services={services}
+            products={products}
+            productSales={productSales}
+            therapists={therapists}
+            defaultDate={selectedDate}
             onRequestSaveService={handleRequestSaveService}
+            onRequestSaveProduct={handleRequestSaveProduct}
+            onRequestAddProductSale={handleRequestAddProductSale}
+            onRequestCancelProductSale={handleRequestCancelProductSale}
           />
         )}
 
@@ -753,6 +1105,7 @@ export default function App() {
             bookings={bookings}
             services={services}
             therapists={therapists}
+            productSales={productSales}
             defaultDate={selectedDate}
           />
         )}
@@ -786,6 +1139,11 @@ export default function App() {
           <DatabasePanel
             database={accountDb}
             allAccounts={accounts}
+            firebaseUser={firebaseUser}
+            isSyncingCloud={isSyncingCloud}
+            onConnectGoogleCloud={handleConnectGoogleCloud}
+            onDisconnectGoogleCloud={handleDisconnectGoogleCloud}
+            onSyncLocalToCloud={handleSyncLocalToCloud}
             onRequestImportDatabase={handleRequestImportDatabase}
             onRequestImportMasterBundle={handleRequestImportMasterBundle}
             onRequestResetDatabase={handleRequestResetDatabase}
@@ -807,6 +1165,7 @@ export default function App() {
           initialDate={selectedDate}
           initialStartTime={prefillSlot.startTime}
           initialTherapistId={prefillSlot.therapistId}
+          initialServiceId={prefillSlot.serviceId}
           initialCustomer={prefillCustomer}
           editingBooking={editingBooking}
           onRequestSave={handleRequestSaveBooking}

@@ -2,7 +2,7 @@
 
 import { THERAPIST_COMMISSION_RATE } from '../config';
 import { addDaysYYYYMMDD, formatDateIndo, getTodayYYYYMMDD, parseDateParts } from './format';
-import type { Booking, Service, ServiceCategory, Therapist } from './types';
+import type { Booking, ProductSale, Service, ServiceCategory, Therapist } from './types';
 
 export type RevenuePeriodType = 'DAILY' | 'WEEKLY' | 'MONTHLY';
 export type RevenueStatusScope = 'COMPLETED_ONLY' | 'INCLUDE_SCHEDULED';
@@ -24,10 +24,23 @@ export interface ServiceRevenueRow {
   share_percent: number;
 }
 
+export interface ProductRevenueRow {
+  product_id: string;
+  product_name: string;
+  transaction_count: number;
+  unit_count: number;
+  total_revenue: number;
+  total_commission: number;
+  share_percent: number;
+}
+
 export interface TherapistRevenueRow {
   therapist_id: string;
   therapist_name: string;
   session_count: number;
+  service_revenue: number;
+  product_count: number;
+  product_revenue: number;
   total_revenue: number;
   total_commission: number;
   share_percent: number;
@@ -39,11 +52,19 @@ export interface CategoryRevenueSummary {
   total_revenue: number;
 }
 
+export interface ProductCategorySummary {
+  transaction_count: number;
+  unit_count: number;
+  total_revenue: number;
+  total_commission: number;
+}
+
 export interface TimelineBucketRow {
   key: string;
   label: string;
   sublabel?: string;
   session_count: number;
+  product_count: number;
   total_revenue: number;
   total_commission: number;
 }
@@ -58,6 +79,13 @@ export interface DailySessionDetailRow {
   counted: boolean;
 }
 
+export interface DailyProductSaleRow {
+  sale: ProductSale;
+  therapist_name: string;
+  commission: number;
+  counted: boolean;
+}
+
 export interface RevenueReport {
   range: PeriodRange;
   scope: RevenueStatusScope;
@@ -66,14 +94,18 @@ export interface RevenueReport {
   totalCommission: number;
   netClinicRevenue: number;
   totalSessions: number;
+  totalProductTransactions: number;
   scheduledPotentialRevenue: number;
   scheduledCount: number;
   cancelledCount: number;
   byCategory: Record<ServiceCategory, CategoryRevenueSummary>;
+  productSummary: ProductCategorySummary;
   byService: ServiceRevenueRow[];
+  byProduct: ProductRevenueRow[];
   byTherapist: TherapistRevenueRow[];
   timelineBuckets: TimelineBucketRow[];
   dailySessions: DailySessionDetailRow[];
+  dailyProductSales: DailyProductSaleRow[];
 }
 
 const BULAN_INDO = [
@@ -211,9 +243,18 @@ export function calculateRevenueReport(params: {
   bookings: Booking[];
   services: Service[];
   therapists: Therapist[];
+  productSales?: ProductSale[];
 }): RevenueReport {
-  const { periodType, referenceDate, referenceMonth, scope, bookings, services, therapists } =
-    params;
+  const {
+    periodType,
+    referenceDate,
+    referenceMonth,
+    scope,
+    bookings,
+    services,
+    therapists,
+    productSales = [],
+  } = params;
 
   const range = getPeriodRange(periodType, referenceDate, referenceMonth);
   const serviceMap = new Map(services.map((s) => [s.service_id, s]));
@@ -222,10 +263,14 @@ export function calculateRevenueReport(params: {
   const inRangeBookings = bookings.filter(
     (b) => b.booking_date >= range.startDate && b.booking_date <= range.endDate
   );
+  const inRangeSales = productSales.filter(
+    (s) => s.sale_date >= range.startDate && s.sale_date <= range.endDate
+  );
 
   let totalRevenue = 0;
   let totalCommission = 0;
   let totalSessions = 0;
+  let totalProductTransactions = 0;
   let scheduledPotentialRevenue = 0;
   let scheduledCount = 0;
   let cancelledCount = 0;
@@ -234,8 +279,15 @@ export function calculateRevenueReport(params: {
     PIJAT: { category: 'PIJAT', session_count: 0, total_revenue: 0 },
     FACIAL: { category: 'FACIAL', session_count: 0, total_revenue: 0 },
   };
+  const productSummary: ProductCategorySummary = {
+    transaction_count: 0,
+    unit_count: 0,
+    total_revenue: 0,
+    total_commission: 0,
+  };
 
   const serviceAgg = new Map<string, Omit<ServiceRevenueRow, 'share_percent'>>();
+  const productAgg = new Map<string, Omit<ProductRevenueRow, 'share_percent'>>();
   const therapistAgg = new Map<string, Omit<TherapistRevenueRow, 'share_percent'>>();
 
   for (const booking of inRangeBookings) {
@@ -286,6 +338,7 @@ export function calculateRevenueReport(params: {
     const existingTherapist = therapistAgg.get(booking.therapist_id);
     if (existingTherapist) {
       existingTherapist.session_count += 1;
+      existingTherapist.service_revenue += price;
       existingTherapist.total_revenue += price;
       existingTherapist.total_commission += txCommission;
     } else {
@@ -293,8 +346,64 @@ export function calculateRevenueReport(params: {
         therapist_id: booking.therapist_id,
         therapist_name: therapist?.name ?? `Terapis (${booking.therapist_id})`,
         session_count: 1,
+        service_revenue: price,
+        product_count: 0,
+        product_revenue: 0,
         total_revenue: price,
         total_commission: txCommission,
+      });
+    }
+  }
+
+  for (const sale of inRangeSales) {
+    if (sale.status === 'CANCELLED') continue;
+    const saleAmount = Math.max(0, Math.round(sale.total_amount));
+    const saleCommission = calculateTransactionCommission(saleAmount);
+    const saleQty = Math.max(1, Math.round(sale.quantity));
+
+    totalRevenue += saleAmount;
+    totalCommission += saleCommission;
+    totalProductTransactions += 1;
+
+    productSummary.transaction_count += 1;
+    productSummary.unit_count += saleQty;
+    productSummary.total_revenue += saleAmount;
+    productSummary.total_commission += saleCommission;
+
+    const existingProduct = productAgg.get(sale.product_id);
+    if (existingProduct) {
+      existingProduct.transaction_count += 1;
+      existingProduct.unit_count += saleQty;
+      existingProduct.total_revenue += saleAmount;
+      existingProduct.total_commission += saleCommission;
+    } else {
+      productAgg.set(sale.product_id, {
+        product_id: sale.product_id,
+        product_name: sale.product_name,
+        transaction_count: 1,
+        unit_count: saleQty,
+        total_revenue: saleAmount,
+        total_commission: saleCommission,
+      });
+    }
+
+    const therapist = therapistMap.get(sale.therapist_id);
+    const existingTherapist = therapistAgg.get(sale.therapist_id);
+    if (existingTherapist) {
+      existingTherapist.product_count += 1;
+      existingTherapist.product_revenue += saleAmount;
+      existingTherapist.total_revenue += saleAmount;
+      existingTherapist.total_commission += saleCommission;
+    } else {
+      therapistAgg.set(sale.therapist_id, {
+        therapist_id: sale.therapist_id,
+        therapist_name: therapist?.name ?? `Terapis (${sale.therapist_id})`,
+        session_count: 0,
+        service_revenue: 0,
+        product_count: 1,
+        product_revenue: saleAmount,
+        total_revenue: saleAmount,
+        total_commission: saleCommission,
       });
     }
   }
@@ -307,6 +416,16 @@ export function calculateRevenueReport(params: {
     .sort((a, b) => {
       if (b.total_revenue !== a.total_revenue) return b.total_revenue - a.total_revenue;
       return a.service_name.localeCompare(b.service_name, 'id');
+    });
+
+  const byProduct: ProductRevenueRow[] = Array.from(productAgg.values())
+    .map((row) => ({
+      ...row,
+      share_percent: totalRevenue > 0 ? Math.round((row.total_revenue / totalRevenue) * 100) : 0,
+    }))
+    .sort((a, b) => {
+      if (b.total_revenue !== a.total_revenue) return b.total_revenue - a.total_revenue;
+      return a.product_name.localeCompare(b.product_name, 'id');
     });
 
   const byTherapist: TherapistRevenueRow[] = Array.from(therapistAgg.values())
@@ -330,6 +449,9 @@ export function calculateRevenueReport(params: {
       const dayBookings = inRangeBookings.filter(
         (b) => b.booking_date === dateStr && isCountedBooking(b, scope)
       );
+      const daySales = inRangeSales.filter(
+        (s) => s.sale_date === dateStr && s.status !== 'CANCELLED'
+      );
       let dayRevenue = 0;
       let dayCommission = 0;
       for (const b of dayBookings) {
@@ -338,11 +460,17 @@ export function calculateRevenueReport(params: {
         dayRevenue += price;
         dayCommission += calculateTransactionCommission(price);
       }
+      for (const s of daySales) {
+        const amount = Math.max(0, Math.round(s.total_amount));
+        dayRevenue += amount;
+        dayCommission += calculateTransactionCommission(amount);
+      }
 
       timelineBuckets.push({
         key: dateStr,
         label: `${HARI_SINGKAT[dt.getDay()]}, ${formatDateIndo(dateStr)}`,
         session_count: dayBookings.length,
+        product_count: daySales.length,
         total_revenue: dayRevenue,
         total_commission: dayCommission,
       });
@@ -363,6 +491,12 @@ export function calculateRevenueReport(params: {
           b.booking_date <= bucketEnd &&
           isCountedBooking(b, scope)
       );
+      const bucketSales = inRangeSales.filter(
+        (s) =>
+          s.sale_date >= bucketStart &&
+          s.sale_date <= bucketEnd &&
+          s.status !== 'CANCELLED'
+      );
       let bucketRevenue = 0;
       let bucketCommission = 0;
       for (const b of bucketBookings) {
@@ -371,12 +505,18 @@ export function calculateRevenueReport(params: {
         bucketRevenue += price;
         bucketCommission += calculateTransactionCommission(price);
       }
+      for (const s of bucketSales) {
+        const amount = Math.max(0, Math.round(s.total_amount));
+        bucketRevenue += amount;
+        bucketCommission += calculateTransactionCommission(amount);
+      }
 
       timelineBuckets.push({
         key: `${bucketStart}_${bucketEnd}`,
         label: `Minggu ${weekNum}`,
         sublabel: `${dayStart} - ${dayEnd} ${BULAN_INDO[startParts.month - 1]}`,
         session_count: bucketBookings.length,
+        product_count: bucketSales.length,
         total_revenue: bucketRevenue,
         total_commission: bucketCommission,
       });
@@ -405,6 +545,23 @@ export function calculateRevenueReport(params: {
           })
       : [];
 
+  const dailyProductSales: DailyProductSaleRow[] =
+    periodType === 'DAILY'
+      ? inRangeSales
+          .slice()
+          .sort((a, b) => b.created_at.localeCompare(a.created_at))
+          .map((sale) => {
+            const therapist = therapistMap.get(sale.therapist_id);
+            const amount = Math.max(0, Math.round(sale.total_amount));
+            return {
+              sale,
+              therapist_name: therapist?.name ?? `Terapis (${sale.therapist_id})`,
+              commission: calculateTransactionCommission(amount),
+              counted: sale.status !== 'CANCELLED',
+            };
+          })
+      : [];
+
   return {
     range,
     scope,
@@ -413,13 +570,17 @@ export function calculateRevenueReport(params: {
     totalCommission,
     netClinicRevenue: Math.max(0, totalRevenue - totalCommission),
     totalSessions,
+    totalProductTransactions,
     scheduledPotentialRevenue,
     scheduledCount,
     cancelledCount,
     byCategory,
+    productSummary,
     byService,
+    byProduct,
     byTherapist,
     timelineBuckets,
     dailySessions,
+    dailyProductSales,
   };
 }

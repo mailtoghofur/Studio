@@ -6,6 +6,8 @@ export type LocationType = 'CLINIC' | 'HOME_SERVICE';
 
 export type BookingStatus = 'SCHEDULED' | 'COMPLETED' | 'CANCELLED';
 
+export type TreatmentDiscountPercent = 0 | 10 | 20;
+
 export type UserRole = 'ADMIN' | 'THERAPIST';
 
 export interface UserAccount {
@@ -42,6 +44,31 @@ export interface Service {
   allow_home_service: boolean;
 }
 
+export interface Product {
+  product_id: string;
+  product_name: string;
+  price: number;
+  is_active: boolean;
+}
+
+export type ProductSaleStatus = 'COMPLETED' | 'CANCELLED';
+
+export interface ProductSale {
+  sale_id: string;
+  product_id: string;
+  product_name: string;
+  therapist_id: string;
+  buyer_name: string;
+  quantity: number;
+  unit_price: number;
+  total_amount: number;
+  sale_date: string; // YYYY-MM-DD
+  notes: string;
+  status: ProductSaleStatus;
+  created_at: string;
+  updated_at: string;
+}
+
 export interface Booking {
   booking_id: string;
   patient_name: string;
@@ -57,7 +84,11 @@ export interface Booking {
   status: BookingStatus;
   /** Penanda reservasi gratis hasil penukaran poin kesetiaan (10x pemesanan). */
   is_loyalty_reward?: boolean;
-  /** Harga akhir transaksi (0 bila memakai hadiah gratis kesetiaan). */
+  /** Persentase diskon pilihan saat penyelesaian treatment (0, 10, atau 20). */
+  discount_percent?: TreatmentDiscountPercent;
+  /** Nominal potongan diskon dalam Rupiah bulat. */
+  discount_amount?: number;
+  /** Harga akhir transaksi (0 bila memakai hadiah gratis kesetiaan, atau harga setelah diskon). */
   final_price?: number;
   /** Waktu terakhir resi diperbaiki setelah reservasi selesai (ISO string). */
   receipt_revised_at?: string;
@@ -74,6 +105,8 @@ export interface AccountDatabase {
   therapists: Therapist[];
   services: Service[];
   bookings: Booking[];
+  products?: Product[];
+  product_sales?: ProductSale[];
   updated_at: string;
 }
 

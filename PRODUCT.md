@@ -12,7 +12,7 @@ Dokumen ini merangkum fitur dari PRD v1.0 beserta keputusan hasil klarifikasi pe
 | Kode | Nama Fitur | Prioritas | Ketergantungan | Status |
 | :--- | :--- | :--- | :--- | :--- |
 | FT-01 | Tampilan Kalender & Slot Harian Terapis | Must Have | FT-02, FT-06 | Selesai |
-| FT-02 | Manajemen Katalog Layanan | Must Have | - | Selesai |
+| FT-02 | Manajemen Katalog Layanan & Penjualan Produk | Must Have | - | Selesai |
 | FT-03 | Formulir Pembuatan Reservasi | Must Have | FT-02, FT-04, FT-06 | Selesai |
 | FT-04 | Validasi Slot Otomatis | Must Have | FT-01, FT-03 | Selesai |
 | FT-05 | Pengelolaan Status, Pembatalan Jadwal, & Cetak Resi | Must Have | FT-01, FT-03, FT-04 | Selesai |

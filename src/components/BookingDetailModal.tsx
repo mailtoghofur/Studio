@@ -1,4 +1,4 @@
-// Panel rincian reservasi untuk mengubah status (Selesai/Dibatalkan) atau menjadwalkan ulang (FT-05).
+// Panel rincian reservasi untuk mengubah status (Selesai/Dibatalkan) dengan pilihan diskon 10% atau 20% serta penjadwalan ulang (FT-05).
 
 import {
   CalendarClock,
@@ -7,20 +7,35 @@ import {
   FilePenLine,
   Home,
   MapPin,
+  Percent,
   Phone,
   Printer,
   User,
   X,
   XCircle,
 } from 'lucide-react';
-import { LOCATION_LABELS, STATUS_LABELS } from '../config';
+import { useEffect, useMemo, useState } from 'react';
+import {
+  LOCATION_LABELS,
+  STATUS_LABELS,
+  TREATMENT_DISCOUNT_LABELS,
+  TREATMENT_DISCOUNT_OPTIONS,
+} from '../config';
+import { calculateTreatmentDiscount, normalizeTreatmentDiscountPercent } from '../lib/discount';
 import {
   formatDateIndo,
   formatPhoneDisplay,
   formatRupiah,
   formatTimeRange,
 } from '../lib/format';
-import type { Booking, BookingStatus, Service, Therapist, UserRole } from '../lib/types';
+import type {
+  Booking,
+  BookingStatus,
+  Service,
+  Therapist,
+  TreatmentDiscountPercent,
+  UserRole,
+} from '../lib/types';
 
 interface BookingDetailModalProps {
   booking: Booking | null;
@@ -28,7 +43,11 @@ interface BookingDetailModalProps {
   therapist?: Therapist;
   userRole: UserRole;
   onClose: () => void;
-  onRequestStatusChange: (booking: Booking, nextStatus: BookingStatus) => void;
+  onRequestStatusChange: (
+    booking: Booking,
+    nextStatus: BookingStatus,
+    discountPercent?: TreatmentDiscountPercent
+  ) => void;
   onStartReschedule: (booking: Booking) => void;
   onOpenReceipt: (booking: Booking) => void;
   onEditReceipt?: (booking: Booking) => void;
@@ -45,12 +64,44 @@ export function BookingDetailModal({
   onOpenReceipt,
   onEditReceipt,
 }: BookingDetailModalProps) {
+  const [selectedDiscount, setSelectedDiscount] = useState<TreatmentDiscountPercent>(0);
+
+  useEffect(() => {
+    setSelectedDiscount(normalizeTreatmentDiscountPercent(booking?.discount_percent));
+  }, [booking?.booking_id, booking?.discount_percent]);
+
+  const basePrice = service ? Math.max(0, Math.round(service.price)) : 0;
+  const discountPreview = useMemo(
+    () =>
+      calculateTreatmentDiscount({
+        basePrice,
+        discountPercent: selectedDiscount,
+        isLoyaltyReward: Boolean(booking?.is_loyalty_reward),
+      }),
+    [basePrice, selectedDiscount, booking?.is_loyalty_reward]
+  );
+
   if (!booking) return null;
 
   const isScheduled = booking.status === 'SCHEDULED';
   const isCompleted = booking.status === 'COMPLETED';
   const isCancelled = booking.status === 'CANCELLED';
   const isAdmin = userRole === 'ADMIN';
+  const isLoyaltyReward = Boolean(booking.is_loyalty_reward);
+
+  const completedDiscountPercent = normalizeTreatmentDiscountPercent(booking.discount_percent);
+  const completedFinalPrice = isLoyaltyReward
+    ? 0
+    : typeof booking.final_price === 'number'
+      ? Math.max(0, Math.round(booking.final_price))
+      : basePrice;
+  const completedDiscountAmount = isLoyaltyReward
+    ? 0
+    : typeof booking.discount_amount === 'number'
+      ? Math.max(0, Math.round(booking.discount_amount))
+      : completedDiscountPercent > 0
+        ? Math.round(basePrice * (completedDiscountPercent / 100))
+        : 0;
 
   return (
     <div
@@ -79,19 +130,28 @@ export function BookingDetailModal({
 
         <div className="mt-4 space-y-4">
           {/* Status saat ini */}
-          <div
-            className={`inline-flex items-center gap-2 rounded-xl px-3 py-1.5 text-sm font-semibold ${
-              isCompleted
-                ? 'bg-emerald-50 text-emerald-800'
-                : isCancelled
-                  ? 'bg-red-50 text-red-800'
-                  : 'bg-amber-50 text-amber-800'
-            }`}
-          >
-            {isCompleted && <CheckCircle2 className="h-4 w-4" />}
-            {isCancelled && <XCircle className="h-4 w-4" />}
-            {isScheduled && <Clock className="h-4 w-4" />}
-            <span>Status: {STATUS_LABELS[booking.status]}</span>
+          <div className="flex flex-wrap items-center gap-2">
+            <div
+              className={`inline-flex items-center gap-2 rounded-xl px-3 py-1.5 text-sm font-semibold ${
+                isCompleted
+                  ? 'bg-emerald-50 text-emerald-800'
+                  : isCancelled
+                    ? 'bg-red-50 text-red-800'
+                    : 'bg-amber-50 text-amber-800'
+              }`}
+            >
+              {isCompleted && <CheckCircle2 className="h-4 w-4" />}
+              {isCancelled && <XCircle className="h-4 w-4" />}
+              {isScheduled && <Clock className="h-4 w-4" />}
+              <span>Status: {STATUS_LABELS[booking.status]}</span>
+            </div>
+
+            {isCompleted && !isLoyaltyReward && completedDiscountPercent > 0 && (
+              <span className="inline-flex items-center gap-1 rounded-full bg-amber-50 px-3 py-1 text-xs font-semibold text-amber-800">
+                <Percent className="h-3.5 w-3.5" />
+                <span>{TREATMENT_DISCOUNT_LABELS[completedDiscountPercent]}</span>
+              </span>
+            )}
           </div>
 
           <dl className="divide-y divide-neutral-200 rounded-xl border border-neutral-200 bg-neutral-50 text-sm">
@@ -113,13 +173,9 @@ export function BookingDetailModal({
                     <span>{service.service_name}</span>
                     <span className="block text-xs font-normal text-neutral-600 tabular-nums">
                       {service.duration_minutes} menit ·{' '}
-                      {booking.is_loyalty_reward
+                      {isLoyaltyReward
                         ? 'Rp0 (Gratis Kesetiaan)'
-                        : formatRupiah(
-                            typeof booking.final_price === 'number'
-                              ? booking.final_price
-                              : service.price
-                          )}
+                        : formatRupiah(completedFinalPrice)}
                     </span>
                   </>
                 ) : (
@@ -127,6 +183,27 @@ export function BookingDetailModal({
                 )}
               </dd>
             </div>
+
+            {isCompleted && !isLoyaltyReward && (
+              <div className="flex items-center justify-between gap-4 px-4 py-3">
+                <dt className="flex items-center gap-2 text-neutral-600">
+                  <Percent className="h-4 w-4" />
+                  <span>Status Diskon</span>
+                </dt>
+                <dd className="text-right font-medium text-neutral-900 tabular-nums">
+                  {completedDiscountPercent > 0 ? (
+                    <>
+                      <span>{TREATMENT_DISCOUNT_LABELS[completedDiscountPercent]}</span>
+                      <span className="block text-xs font-normal text-emerald-800">
+                        Potongan -{formatRupiah(completedDiscountAmount)}
+                      </span>
+                    </>
+                  ) : (
+                    <span>{TREATMENT_DISCOUNT_LABELS[0]}</span>
+                  )}
+                </dd>
+              </div>
+            )}
 
             <div className="flex items-center justify-between gap-4 px-4 py-3">
               <dt className="flex items-center gap-2 text-neutral-600">
@@ -189,6 +266,76 @@ export function BookingDetailModal({
               </div>
             )}
           </dl>
+
+          {/* Pilihan Status Diskon saat Penyelesaian Treatment */}
+          {isScheduled && (
+            <div className="rounded-xl border border-neutral-200 bg-neutral-50 p-4">
+              <div className="flex items-center justify-between gap-2">
+                <p className="text-sm font-semibold text-neutral-900">
+                  Pilihan Diskon Penyelesaian Treatment
+                </p>
+                {!isLoyaltyReward && (
+                  <span className="text-xs font-medium text-neutral-600 tabular-nums">
+                    Harga awal: {formatRupiah(basePrice)}
+                  </span>
+                )}
+              </div>
+
+              {isLoyaltyReward ? (
+                <p className="mt-2 text-sm text-neutral-700">
+                  Reservasi Gratis Kesetiaan (Rp0) tidak memakai potongan diskon.
+                </p>
+              ) : (
+                <>
+                  <div
+                    role="radiogroup"
+                    aria-label="Pilihan status diskon treatment"
+                    className="mt-3 grid grid-cols-1 gap-2 sm:grid-cols-3"
+                  >
+                    {TREATMENT_DISCOUNT_OPTIONS.map((pct) => {
+                      const active = selectedDiscount === pct;
+                      const calc = calculateTreatmentDiscount({
+                        basePrice,
+                        discountPercent: pct,
+                      });
+                      return (
+                        <button
+                          key={pct}
+                          type="button"
+                          role="radio"
+                          aria-checked={active}
+                          onClick={() => setSelectedDiscount(pct)}
+                          className={`flex min-h-[48px] flex-col items-start justify-center rounded-xl border px-3 py-2 text-left transition-colors focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-amber-700 ${
+                            active
+                              ? 'border-amber-700 bg-amber-50 text-amber-900'
+                              : 'border-neutral-200 bg-white text-neutral-800 hover:bg-neutral-50'
+                          }`}
+                        >
+                          <span className="text-sm font-semibold">
+                            {TREATMENT_DISCOUNT_LABELS[pct]}
+                          </span>
+                          <span className="text-xs text-neutral-600 tabular-nums">
+                            {pct === 0
+                              ? formatRupiah(calc.finalPrice)
+                              : `Hemat ${formatRupiah(calc.discountAmount)}`}
+                          </span>
+                        </button>
+                      );
+                    })}
+                  </div>
+
+                  <div className="mt-3 flex flex-wrap items-center justify-between gap-2 border-t border-neutral-200 pt-3 text-sm">
+                    <span className="text-neutral-700">
+                      Total Bayar Akhir ({TREATMENT_DISCOUNT_LABELS[discountPreview.discountPercent]})
+                    </span>
+                    <span className="text-base font-bold text-neutral-900 tabular-nums">
+                      {formatRupiah(discountPreview.finalPrice)}
+                    </span>
+                  </div>
+                </>
+              )}
+            </div>
+          )}
         </div>
 
         {isScheduled && (
@@ -222,7 +369,13 @@ export function BookingDetailModal({
               )}
               <button
                 type="button"
-                onClick={() => onRequestStatusChange(booking, 'COMPLETED')}
+                onClick={() =>
+                  onRequestStatusChange(
+                    booking,
+                    'COMPLETED',
+                    isLoyaltyReward ? 0 : selectedDiscount
+                  )
+                }
                 className="min-h-[44px] rounded-xl bg-amber-700 px-4 py-2 text-sm font-medium text-white hover:bg-amber-800 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-amber-700 whitespace-nowrap"
               >
                 Tandai Selesai
@@ -266,3 +419,4 @@ export function BookingDetailModal({
     </div>
   );
 }
+

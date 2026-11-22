@@ -2,7 +2,14 @@
 
 import { AlertCircle, Gift, Home, Lock, MapPin, X } from 'lucide-react';
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { CATEGORY_LABELS, LOCATION_LABELS, LOYALTY_MILESTONE_COUNT } from '../config';
+import {
+  CATEGORY_LABELS,
+  LOCATION_LABELS,
+  LOYALTY_MILESTONE_COUNT,
+  TREATMENT_DISCOUNT_LABELS,
+  TREATMENT_DISCOUNT_OPTIONS,
+} from '../config';
+import { calculateTreatmentDiscount, normalizeTreatmentDiscountPercent } from '../lib/discount';
 import { formatRupiah, formatTimeDisplay } from '../lib/format';
 import { findCustomerLoyaltyByPhone, isStandardRewardService } from '../lib/loyalty';
 import {
@@ -16,7 +23,13 @@ import {
   generateTimeSlotOptions,
   getEffectiveLocationType,
 } from '../lib/schedule';
-import type { Booking, LocationType, Service, Therapist } from '../lib/types';
+import type {
+  Booking,
+  LocationType,
+  Service,
+  Therapist,
+  TreatmentDiscountPercent,
+} from '../lib/types';
 
 interface ReceiptEditModalProps {
   booking: Booking | null;
@@ -45,6 +58,7 @@ export function ReceiptEditModal({
     location_type: 'CLINIC',
     patient_address: '',
     is_loyalty_reward: false,
+    discount_percent: 0,
     final_price: '0',
     notes: '',
     revision_reason: '',
@@ -81,6 +95,9 @@ export function ReceiptEditModal({
       location_type: booking.location_type,
       patient_address: booking.patient_address,
       is_loyalty_reward: Boolean(booking.is_loyalty_reward),
+      discount_percent: booking.is_loyalty_reward
+        ? 0
+        : normalizeTreatmentDiscountPercent(booking.discount_percent),
       final_price: String(initialPrice),
       notes: booking.notes,
       revision_reason: booking.receipt_revision_reason ?? '',
@@ -146,14 +163,27 @@ export function ReceiptEditModal({
       nextSvc && nextSvc.category === 'PIJAT' && nextSvc.allow_home_service
         ? form.location_type
         : 'CLINIC';
-    setForm((prev) => ({
-      ...prev,
-      service_id: nextServiceId,
-      location_type: nextLoc,
-      final_price: prev.is_loyalty_reward
-        ? '0'
-        : String(nextSvc ? Math.max(0, Math.round(nextSvc.price)) : prev.final_price),
-    }));
+    setForm((prev) => {
+      if (prev.is_loyalty_reward) {
+        return {
+          ...prev,
+          service_id: nextServiceId,
+          location_type: nextLoc,
+          discount_percent: 0,
+          final_price: '0',
+        };
+      }
+      const nextCalc = calculateTreatmentDiscount({
+        basePrice: nextSvc ? nextSvc.price : 0,
+        discountPercent: prev.discount_percent,
+      });
+      return {
+        ...prev,
+        service_id: nextServiceId,
+        location_type: nextLoc,
+        final_price: String(nextSvc ? nextCalc.finalPrice : prev.final_price),
+      };
+    });
   };
 
   const handleToggleLoyalty = (checked: boolean) => {
@@ -169,15 +199,36 @@ export function ReceiptEditModal({
         return {
           ...prev,
           is_loyalty_reward: true,
+          discount_percent: 0,
           service_id: nextServiceId,
           final_price: '0',
         };
       }
       const currentSvc = services.find((s) => s.service_id === prev.service_id);
+      const calc = calculateTreatmentDiscount({
+        basePrice: currentSvc ? currentSvc.price : 0,
+        discountPercent: prev.discount_percent,
+      });
       return {
         ...prev,
         is_loyalty_reward: false,
-        final_price: String(currentSvc ? Math.max(0, Math.round(currentSvc.price)) : 0),
+        final_price: String(calc.finalPrice),
+      };
+    });
+  };
+
+  const handleSelectDiscount = (discountPercent: TreatmentDiscountPercent) => {
+    setForm((prev) => {
+      if (prev.is_loyalty_reward) return prev;
+      const currentSvc = services.find((s) => s.service_id === prev.service_id);
+      const calc = calculateTreatmentDiscount({
+        basePrice: currentSvc ? currentSvc.price : 0,
+        discountPercent,
+      });
+      return {
+        ...prev,
+        discount_percent: discountPercent,
+        final_price: String(calc.finalPrice),
       };
     });
   };
@@ -528,6 +579,48 @@ export function ReceiptEditModal({
               </p>
             )}
 
+            {!form.is_loyalty_reward && (
+              <div>
+                <span className="block text-sm font-medium text-neutral-900">
+                  Pilihan Diskon Treatment
+                </span>
+                <div
+                  role="radiogroup"
+                  aria-label="Pilihan diskon treatment pada resi"
+                  className="mt-2 grid grid-cols-1 gap-2 sm:grid-cols-3"
+                >
+                  {TREATMENT_DISCOUNT_OPTIONS.map((pct) => {
+                    const active = form.discount_percent === pct;
+                    const calc = calculateTreatmentDiscount({
+                      basePrice: selectedService?.price ?? 0,
+                      discountPercent: pct,
+                    });
+                    return (
+                      <button
+                        key={pct}
+                        type="button"
+                        role="radio"
+                        aria-checked={active}
+                        onClick={() => handleSelectDiscount(pct)}
+                        className={`flex min-h-[44px] flex-col items-start justify-center rounded-xl border px-3 py-2 text-left transition-colors focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-amber-700 ${
+                          active
+                            ? 'border-amber-700 bg-amber-50 text-amber-900'
+                            : 'border-neutral-200 bg-white text-neutral-800 hover:bg-neutral-50'
+                        }`}
+                      >
+                        <span className="text-sm font-semibold">
+                          {TREATMENT_DISCOUNT_LABELS[pct]}
+                        </span>
+                        <span className="text-xs text-neutral-600 tabular-nums">
+                          {formatRupiah(calc.finalPrice)}
+                        </span>
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
+
             <div>
               <label
                 htmlFor="edit-receipt-final-price"
@@ -544,7 +637,26 @@ export function ReceiptEditModal({
                   inputMode="numeric"
                   disabled={form.is_loyalty_reward}
                   value={form.final_price}
-                  onChange={(e) => setForm((prev) => ({ ...prev, final_price: e.target.value }))}
+                  onChange={(e) => {
+                    const nextVal = e.target.value;
+                    setForm((prev) => {
+                      if (!selectedService || prev.discount_percent === 0) {
+                        return { ...prev, final_price: nextVal };
+                      }
+                      const expected = calculateTreatmentDiscount({
+                        basePrice: selectedService.price,
+                        discountPercent: prev.discount_percent,
+                      }).finalPrice;
+                      return {
+                        ...prev,
+                        final_price: nextVal,
+                        discount_percent:
+                          /^\d+$/.test(nextVal.trim()) && Number(nextVal.trim()) === expected
+                            ? prev.discount_percent
+                            : 0,
+                      };
+                    });
+                  }}
                   placeholder="Contoh: 150000"
                   className="min-h-[44px] w-full max-w-[220px] rounded-xl border border-neutral-200 bg-white px-3.5 py-2 text-base text-neutral-900 tabular-nums disabled:bg-neutral-100 disabled:text-neutral-500 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-amber-700"
                 />

@@ -1,6 +1,6 @@
 // Logika bisnis penjadwalan: jam operasional 10.00-21.00, anti-bentrok 3 terapis, jeda 0 menit, dan aturan lokasi.
 
-import { CLINIC_HOURS } from '../config';
+import { CATEGORY_LABELS, CLINIC_HOURS } from '../config';
 import { formatTimeDisplay, formatTimeRange, normalizeIndoPhone, parseDateParts } from './format';
 import type {
   Booking,
@@ -272,3 +272,29 @@ export function validateBookingInput(
     effectiveLocationType,
   };
 }
+
+export function matchesServiceSearch(
+  service: Service | undefined,
+  rawQuery: string,
+  fallbackServiceId?: string
+): boolean {
+  const tokens = rawQuery
+    .toLowerCase()
+    .trim()
+    .split(/\s+/)
+    .filter(Boolean);
+  if (tokens.length === 0) return true;
+
+  const haystack = service
+    ? `${service.service_name} ${CATEGORY_LABELS[service.category]} ${service.duration_minutes} menit ${service.service_id}`.toLowerCase()
+    : (fallbackServiceId ?? '').toLowerCase();
+
+  return tokens.every((token) => haystack.includes(token));
+}
+
+export function filterServicesByQuery(services: Service[], rawQuery: string): Service[] {
+  const trimmed = rawQuery.trim();
+  if (!trimmed) return services;
+  return services.filter((service) => matchesServiceSearch(service, trimmed));
+}
+

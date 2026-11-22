@@ -18,12 +18,13 @@ import {
   type RevenuePeriodType,
   type RevenueStatusScope,
 } from '../lib/revenue';
-import type { Booking, Service, Therapist } from '../lib/types';
+import type { Booking, ProductSale, Service, Therapist } from '../lib/types';
 
 interface RevenueSummaryViewProps {
   bookings: Booking[];
   services: Service[];
   therapists: Therapist[];
+  productSales?: ProductSale[];
   defaultDate: string;
 }
 
@@ -31,6 +32,7 @@ export function RevenueSummaryView({
   bookings,
   services,
   therapists,
+  productSales = [],
   defaultDate,
 }: RevenueSummaryViewProps) {
   const [periodType, setPeriodType] = useState<RevenuePeriodType>('DAILY');
@@ -50,8 +52,9 @@ export function RevenueSummaryView({
         bookings,
         services,
         therapists,
+        productSales,
       }),
-    [periodType, referenceDate, referenceMonth, scope, bookings, services, therapists]
+    [periodType, referenceDate, referenceMonth, scope, bookings, services, therapists, productSales]
   );
 
   const handlePrevPeriod = () => {
@@ -243,7 +246,7 @@ export function RevenueSummaryView({
             {formatRupiah(report.totalRevenue)}
           </p>
           <p className="mt-1 text-xs text-neutral-600 tabular-nums">
-            Dari {report.totalSessions} sesi layanan terhitung
+            Dari {report.totalSessions} sesi & {report.totalProductTransactions} penjualan produk
           </p>
         </div>
 
@@ -258,7 +261,7 @@ export function RevenueSummaryView({
         </div>
 
         <div className="p-4">
-          <p className="text-sm font-medium text-neutral-600">Per Kategori Layanan</p>
+          <p className="text-sm font-medium text-neutral-600">Per Kategori Omzet</p>
           <div className="mt-1.5 space-y-1 text-sm">
             <div className="flex items-center justify-between gap-2">
               <span className="text-neutral-700">
@@ -274,6 +277,14 @@ export function RevenueSummaryView({
               </span>
               <span className="font-semibold text-neutral-900 tabular-nums">
                 {formatRupiah(report.byCategory.FACIAL.total_revenue)}
+              </span>
+            </div>
+            <div className="flex items-center justify-between gap-2">
+              <span className="text-neutral-700">
+                Produk ({report.productSummary.unit_count} item)
+              </span>
+              <span className="font-semibold text-neutral-900 tabular-nums">
+                {formatRupiah(report.productSummary.total_revenue)}
               </span>
             </div>
           </div>
@@ -371,6 +382,56 @@ export function RevenueSummaryView({
         )}
       </div>
 
+      {/* Tabel Tambahan: Omzet Penjualan Produk */}
+      {report.byProduct.length > 0 && (
+        <div>
+          <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+            <h2 className="text-lg font-semibold text-neutral-900">Pendapatan Penjualan Produk</h2>
+            <span className="text-sm text-neutral-600 tabular-nums">
+              {report.productSummary.transaction_count} transaksi ({report.productSummary.unit_count}{' '}
+              item)
+            </span>
+          </div>
+
+          <div className="overflow-x-auto rounded-xl border border-neutral-200">
+            <table className="w-full min-w-[600px] border-collapse text-left text-sm">
+              <thead>
+                <tr className="border-b border-neutral-200 bg-neutral-50 text-neutral-700">
+                  <th className="px-4 py-3 font-semibold">Nama Produk</th>
+                  <th className="px-4 py-3 text-right font-semibold">Transaksi</th>
+                  <th className="px-4 py-3 text-right font-semibold">Terjual</th>
+                  <th className="px-4 py-3 text-right font-semibold">Total Omzet</th>
+                  <th className="px-4 py-3 text-right font-semibold">Komisi 10%</th>
+                  <th className="px-4 py-3 text-right font-semibold">Porsi</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-neutral-200">
+                {report.byProduct.map((row) => (
+                  <tr key={row.product_id} className="hover:bg-neutral-50/80">
+                    <td className="px-4 py-3 font-medium text-neutral-900">{row.product_name}</td>
+                    <td className="px-4 py-3 text-right text-neutral-900 tabular-nums">
+                      {row.transaction_count}
+                    </td>
+                    <td className="px-4 py-3 text-right text-neutral-700 tabular-nums">
+                      {row.unit_count} item
+                    </td>
+                    <td className="px-4 py-3 text-right font-semibold text-neutral-900 tabular-nums">
+                      {formatRupiah(row.total_revenue)}
+                    </td>
+                    <td className="px-4 py-3 text-right font-semibold text-amber-800 tabular-nums">
+                      {formatRupiah(row.total_commission)}
+                    </td>
+                    <td className="px-4 py-3 text-right text-neutral-700 tabular-nums">
+                      {row.share_percent}%
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
+
       {/* Tabel 2 & 3: Rincian Timeline/Sesi & Kontribusi per Terapis */}
       <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
         {/* Rincian Periode */}
@@ -384,80 +445,137 @@ export function RevenueSummaryView({
           </h2>
 
           {periodType === 'DAILY' ? (
-            report.dailySessions.length === 0 ? (
-              <div className="rounded-xl border border-neutral-200 bg-neutral-50 p-6 text-center text-sm text-neutral-600">
-                Tidak ada reservasi pada tanggal ini.
-              </div>
-            ) : (
-              <div className="overflow-x-auto rounded-xl border border-neutral-200">
-                <table className="w-full min-w-[540px] border-collapse text-left text-sm">
-                  <thead>
-                    <tr className="border-b border-neutral-200 bg-neutral-50 text-neutral-700">
-                      <th className="px-3.5 py-2.5 font-semibold">Jam</th>
-                      <th className="px-3.5 py-2.5 font-semibold">Pasien & Layanan</th>
-                      <th className="px-3.5 py-2.5 font-semibold">Status</th>
-                      <th className="px-3.5 py-2.5 text-right font-semibold">Nominal</th>
-                      <th className="px-3.5 py-2.5 text-right font-semibold">Komisi 10%</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-neutral-200">
-                    {report.dailySessions.map((item) => (
-                      <tr key={item.booking.booking_id} className="hover:bg-neutral-50/80">
-                        <td className="px-3.5 py-2.5 text-neutral-800 tabular-nums whitespace-nowrap">
-                          {formatTimeRange(item.booking.start_time, item.booking.end_time)}
-                        </td>
-                        <td className="px-3.5 py-2.5">
-                          <p className="font-medium text-neutral-900">{item.booking.patient_name}</p>
-                          <p className="text-xs text-neutral-600">
-                            {item.service_name} · {item.therapist_name}
-                          </p>
-                        </td>
-                        <td className="px-3.5 py-2.5">
-                          <span
-                            className={`inline-flex rounded-full px-2.5 py-0.5 text-xs font-medium ${
-                              item.booking.status === 'COMPLETED'
-                                ? 'bg-emerald-50 text-emerald-800'
-                                : item.booking.status === 'SCHEDULED'
-                                  ? 'bg-amber-50 text-amber-800'
-                                  : 'bg-neutral-100 text-neutral-600'
+            <div className="space-y-4">
+              {report.dailySessions.length === 0 ? (
+                <div className="rounded-xl border border-neutral-200 bg-neutral-50 p-6 text-center text-sm text-neutral-600">
+                  Tidak ada reservasi pada tanggal ini.
+                </div>
+              ) : (
+                <div className="overflow-x-auto rounded-xl border border-neutral-200">
+                  <table className="w-full min-w-[540px] border-collapse text-left text-sm">
+                    <thead>
+                      <tr className="border-b border-neutral-200 bg-neutral-50 text-neutral-700">
+                        <th className="px-3.5 py-2.5 font-semibold">Jam</th>
+                        <th className="px-3.5 py-2.5 font-semibold">Pasien & Layanan</th>
+                        <th className="px-3.5 py-2.5 font-semibold">Status</th>
+                        <th className="px-3.5 py-2.5 text-right font-semibold">Nominal</th>
+                        <th className="px-3.5 py-2.5 text-right font-semibold">Komisi 10%</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-neutral-200">
+                      {report.dailySessions.map((item) => (
+                        <tr key={item.booking.booking_id} className="hover:bg-neutral-50/80">
+                          <td className="px-3.5 py-2.5 text-neutral-800 tabular-nums whitespace-nowrap">
+                            {formatTimeRange(item.booking.start_time, item.booking.end_time)}
+                          </td>
+                          <td className="px-3.5 py-2.5">
+                            <p className="font-medium text-neutral-900">
+                              {item.booking.patient_name}
+                            </p>
+                            <p className="text-xs text-neutral-600">
+                              {item.service_name} · {item.therapist_name}
+                              {!item.booking.is_loyalty_reward &&
+                              item.booking.discount_percent &&
+                              item.booking.discount_percent > 0
+                                ? ` · Diskon ${item.booking.discount_percent}%`
+                                : ''}
+                            </p>
+                          </td>
+                          <td className="px-3.5 py-2.5">
+                            <span
+                              className={`inline-flex rounded-full px-2.5 py-0.5 text-xs font-medium ${
+                                item.booking.status === 'COMPLETED'
+                                  ? 'bg-emerald-50 text-emerald-800'
+                                  : item.booking.status === 'SCHEDULED'
+                                    ? 'bg-amber-50 text-amber-800'
+                                    : 'bg-neutral-100 text-neutral-600'
+                              }`}
+                            >
+                              {STATUS_LABELS[item.booking.status]}
+                            </span>
+                          </td>
+                          <td
+                            className={`px-3.5 py-2.5 text-right font-medium tabular-nums whitespace-nowrap ${
+                              item.counted
+                                ? 'text-neutral-900'
+                                : 'text-neutral-400 line-through'
                             }`}
                           >
-                            {STATUS_LABELS[item.booking.status]}
-                          </span>
-                        </td>
-                        <td
-                          className={`px-3.5 py-2.5 text-right font-medium tabular-nums whitespace-nowrap ${
-                            item.counted
-                              ? 'text-neutral-900'
-                              : 'text-neutral-400 line-through'
-                          }`}
-                        >
-                          {formatRupiah(item.amount)}
-                        </td>
-                        <td
-                          className={`px-3.5 py-2.5 text-right font-medium tabular-nums whitespace-nowrap ${
-                            item.counted
-                              ? 'text-amber-800'
-                              : 'text-neutral-400 line-through'
-                          }`}
-                        >
-                          {formatRupiah(item.commission)}
-                        </td>
+                            {formatRupiah(item.amount)}
+                          </td>
+                          <td
+                            className={`px-3.5 py-2.5 text-right font-medium tabular-nums whitespace-nowrap ${
+                              item.counted
+                                ? 'text-amber-800'
+                                : 'text-neutral-400 line-through'
+                            }`}
+                          >
+                            {formatRupiah(item.commission)}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+
+              {report.dailyProductSales.length > 0 && (
+                <div className="overflow-x-auto rounded-xl border border-neutral-200">
+                  <table className="w-full min-w-[460px] border-collapse text-left text-sm">
+                    <thead>
+                      <tr className="border-b border-neutral-200 bg-neutral-50 text-neutral-700">
+                        <th className="px-3.5 py-2.5 font-semibold">Penjualan Produk Hari Ini</th>
+                        <th className="px-3.5 py-2.5 font-semibold">Terapis</th>
+                        <th className="px-3.5 py-2.5 text-right font-semibold">Qty</th>
+                        <th className="px-3.5 py-2.5 text-right font-semibold">Omzet</th>
+                        <th className="px-3.5 py-2.5 text-right font-semibold">Komisi 10%</th>
                       </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            )
+                    </thead>
+                    <tbody className="divide-y divide-neutral-200">
+                      {report.dailyProductSales.map((item) => (
+                        <tr key={item.sale.sale_id} className="hover:bg-neutral-50/80">
+                          <td className="px-3.5 py-2.5">
+                            <p className="font-medium text-neutral-900">{item.sale.product_name}</p>
+                            {item.sale.buyer_name && (
+                              <p className="text-xs text-neutral-600">
+                                Pembeli: {item.sale.buyer_name}
+                              </p>
+                            )}
+                          </td>
+                          <td className="px-3.5 py-2.5 text-neutral-800">{item.therapist_name}</td>
+                          <td className="px-3.5 py-2.5 text-right text-neutral-800 tabular-nums">
+                            {item.sale.quantity}
+                          </td>
+                          <td
+                            className={`px-3.5 py-2.5 text-right font-medium tabular-nums whitespace-nowrap ${
+                              item.counted ? 'text-neutral-900' : 'text-neutral-400 line-through'
+                            }`}
+                          >
+                            {formatRupiah(item.sale.total_amount)}
+                          </td>
+                          <td
+                            className={`px-3.5 py-2.5 text-right font-medium tabular-nums whitespace-nowrap ${
+                              item.counted ? 'text-amber-800' : 'text-neutral-400 line-through'
+                            }`}
+                          >
+                            {formatRupiah(item.counted ? item.commission : 0)}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </div>
           ) : (
             <div className="overflow-x-auto rounded-xl border border-neutral-200">
-              <table className="w-full min-w-[440px] border-collapse text-left text-sm">
+              <table className="w-full min-w-[460px] border-collapse text-left text-sm">
                 <thead>
                   <tr className="border-b border-neutral-200 bg-neutral-50 text-neutral-700">
                     <th className="px-3.5 py-2.5 font-semibold">
                       {periodType === 'WEEKLY' ? 'Hari & Tanggal' : 'Pekan'}
                     </th>
-                    <th className="px-3.5 py-2.5 text-right font-semibold">Sesi</th>
+                    <th className="px-3.5 py-2.5 text-right font-semibold">Sesi / Produk</th>
                     <th className="px-3.5 py-2.5 text-right font-semibold">Pendapatan</th>
                     <th className="px-3.5 py-2.5 text-right font-semibold">Komisi 10%</th>
                   </tr>
@@ -471,8 +589,9 @@ export function RevenueSummaryView({
                           <p className="text-xs text-neutral-600">{bucket.sublabel}</p>
                         )}
                       </td>
-                      <td className="px-3.5 py-2.5 text-right text-neutral-800 tabular-nums">
-                        {bucket.session_count}
+                      <td className="px-3.5 py-2.5 text-right text-neutral-800 tabular-nums whitespace-nowrap">
+                        {bucket.session_count} sesi
+                        {bucket.product_count > 0 ? `, ${bucket.product_count} produk` : ''}
                       </td>
                       <td className="px-3.5 py-2.5 text-right font-semibold text-neutral-900 tabular-nums">
                         {formatRupiah(bucket.total_revenue)}
@@ -503,8 +622,8 @@ export function RevenueSummaryView({
                 <thead>
                   <tr className="border-b border-neutral-200 bg-neutral-50 text-neutral-700">
                     <th className="px-3.5 py-2.5 font-semibold">Nama Terapis</th>
-                    <th className="px-3.5 py-2.5 text-right font-semibold">Sesi</th>
-                    <th className="px-3.5 py-2.5 text-right font-semibold">Pendapatan</th>
+                    <th className="px-3.5 py-2.5 text-right font-semibold">Sesi / Produk</th>
+                    <th className="px-3.5 py-2.5 text-right font-semibold">Omzet Total</th>
                     <th className="px-3.5 py-2.5 text-right font-semibold">Komisi 10%</th>
                     <th className="px-3.5 py-2.5 text-right font-semibold">Porsi</th>
                   </tr>
@@ -513,10 +632,17 @@ export function RevenueSummaryView({
                   {report.byTherapist.map((row) => (
                     <tr key={row.therapist_id} className="hover:bg-neutral-50/80">
                       <td className="px-3.5 py-2.5 font-medium text-neutral-900">
-                        {row.therapist_name}
+                        <p>{row.therapist_name}</p>
+                        {row.product_revenue > 0 && (
+                          <p className="text-xs font-normal text-neutral-600 tabular-nums">
+                            Jasa {formatRupiah(row.service_revenue)} · Produk{' '}
+                            {formatRupiah(row.product_revenue)}
+                          </p>
+                        )}
                       </td>
-                      <td className="px-3.5 py-2.5 text-right text-neutral-800 tabular-nums">
-                        {row.session_count}
+                      <td className="px-3.5 py-2.5 text-right text-neutral-800 tabular-nums whitespace-nowrap">
+                        {row.session_count} sesi
+                        {row.product_count > 0 ? ` + ${row.product_count} produk` : ''}
                       </td>
                       <td className="px-3.5 py-2.5 text-right font-semibold text-neutral-900 tabular-nums">
                         {formatRupiah(row.total_revenue)}
@@ -533,8 +659,11 @@ export function RevenueSummaryView({
                 <tfoot>
                   <tr className="border-t border-neutral-200 bg-neutral-50 font-semibold text-neutral-900">
                     <td className="px-3.5 py-2.5">Total</td>
-                    <td className="px-3.5 py-2.5 text-right tabular-nums">
-                      {report.totalSessions}
+                    <td className="px-3.5 py-2.5 text-right tabular-nums whitespace-nowrap">
+                      {report.totalSessions} sesi
+                      {report.totalProductTransactions > 0
+                        ? ` + ${report.totalProductTransactions} produk`
+                        : ''}
                     </td>
                     <td className="px-3.5 py-2.5 text-right tabular-nums">
                       {formatRupiah(report.totalRevenue)}

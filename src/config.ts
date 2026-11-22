@@ -1,6 +1,14 @@
 // Konfigurasi utama aturan bisnis PRD, data awal terapis dan layanan, serta awalan penyimpanan database per akun.
 
-import type { BookingStatus, LocationType, Service, ServiceCategory, Therapist } from './lib/types';
+import type {
+  BookingStatus,
+  LocationType,
+  Product,
+  Service,
+  ServiceCategory,
+  Therapist,
+  TreatmentDiscountPercent,
+} from './lib/types';
 
 export const CLINIC_NAME = 'Naomi Beauty & Wellness';
 export const CLINIC_LOGO_SRC = '/assets/aistudio/WhatsApp_Image_2026-11-20_at_13.29.01_0e292a8c.jpeg';
@@ -67,6 +75,27 @@ export const DEFAULT_SERVICES: Service[] = [
   },
 ];
 
+export const DEFAULT_PRODUCTS: Product[] = [
+  {
+    product_id: 'P-01',
+    product_name: 'Minyak Pijat Aromaterapi 100 ml',
+    price: 85000,
+    is_active: true,
+  },
+  {
+    product_id: 'P-02',
+    product_name: 'Serum Wajah Kolagen 30 ml',
+    price: 150000,
+    is_active: true,
+  },
+  {
+    product_id: 'P-03',
+    product_name: 'Lulur Tubuh Herbal 200 g',
+    price: 120000,
+    is_active: true,
+  },
+];
+
 export const CATEGORY_LABELS: Record<ServiceCategory, string> = {
   PIJAT: 'Pijat',
   FACIAL: 'Facial',
@@ -81,6 +110,14 @@ export const STATUS_LABELS: Record<BookingStatus, string> = {
   SCHEDULED: 'Terjadwal',
   COMPLETED: 'Selesai',
   CANCELLED: 'Dibatalkan',
+};
+
+export const TREATMENT_DISCOUNT_OPTIONS: readonly TreatmentDiscountPercent[] = [0, 10, 20];
+
+export const TREATMENT_DISCOUNT_LABELS: Record<TreatmentDiscountPercent, string> = {
+  0: 'Tanpa Diskon',
+  10: 'Diskon 10%',
+  20: 'Diskon 20%',
 };
 
 export const STORAGE_KEY = 'klinik_penjadwalan_v1';

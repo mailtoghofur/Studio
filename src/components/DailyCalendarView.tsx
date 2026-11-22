@@ -9,18 +9,26 @@ import {
   Home,
   MapPin,
   Plus,
+  Search,
+  X,
   XCircle,
 } from 'lucide-react';
 import { useMemo, useState } from 'react';
 import { CLINIC_HOURS, LOCATION_LABELS, STATUS_LABELS } from '../config';
 import {
   addDaysYYYYMMDD,
+  formatRupiah,
   formatTimeDisplay,
   formatTimeRange,
   formatWeekdayDateIndo,
   getTodayYYYYMMDD,
 } from '../lib/format';
-import { generateTimeSlotOptions, timeToMinutes } from '../lib/schedule';
+import {
+  filterServicesByQuery,
+  generateTimeSlotOptions,
+  matchesServiceSearch,
+  timeToMinutes,
+} from '../lib/schedule';
 import type { Booking, BookingStatus, Service, Therapist, UserRole } from '../lib/types';
 
 interface DailyCalendarViewProps {
@@ -32,6 +40,7 @@ interface DailyCalendarViewProps {
   userRole: UserRole;
   loggedInTherapistId?: string;
   onCreateAtSlot: (therapistId: string, startTime: string) => void;
+  onCreateWithService?: (serviceId: string) => void;
   onSelectBooking: (booking: Booking) => void;
 }
 
@@ -48,9 +57,11 @@ export function DailyCalendarView({
   userRole,
   loggedInTherapistId,
   onCreateAtSlot,
+  onCreateWithService,
   onSelectBooking,
 }: DailyCalendarViewProps) {
   const [statusFilter, setStatusFilter] = useState<FilterTab>('ALL');
+  const [serviceQuery, setServiceQuery] = useState('');
   const timeSlots = useMemo(() => generateTimeSlotOptions(), []);
   const serviceMap = useMemo(
     () => new Map(services.map((s) => [s.service_id, s])),
@@ -82,6 +93,19 @@ export function DailyCalendarView({
       .sort((a, b) => a.start_time.localeCompare(b.start_time));
   }, [bookings, selectedDate, isTherapistRole, loggedInTherapistId]);
 
+  const trimmedServiceQuery = serviceQuery.trim();
+  const matchedCatalogServices = useMemo(
+    () => (trimmedServiceQuery ? filterServicesByQuery(services, trimmedServiceQuery) : []),
+    [services, trimmedServiceQuery]
+  );
+
+  const filteredDayBookings = useMemo(() => {
+    if (!trimmedServiceQuery) return dayBookings;
+    return dayBookings.filter((b) =>
+      matchesServiceSearch(serviceMap.get(b.service_id), trimmedServiceQuery, b.service_id)
+    );
+  }, [dayBookings, serviceMap, trimmedServiceQuery]);
+
   const counts = useMemo(() => {
     let scheduled = 0;
     let completed = 0;
@@ -95,17 +119,17 @@ export function DailyCalendarView({
   }, [dayBookings]);
 
   const gridBookings = useMemo(() => {
-    return dayBookings.filter((b) => {
+    return filteredDayBookings.filter((b) => {
       if (b.status === 'CANCELLED') return false;
       if (statusFilter === 'ALL') return true;
       return b.status === statusFilter;
     });
-  }, [dayBookings, statusFilter]);
+  }, [filteredDayBookings, statusFilter]);
 
   const cancelledBookings = useMemo(() => {
     if (statusFilter !== 'ALL' && statusFilter !== 'CANCELLED') return [];
-    return dayBookings.filter((b) => b.status === 'CANCELLED');
-  }, [dayBookings, statusFilter]);
+    return filteredDayBookings.filter((b) => b.status === 'CANCELLED');
+  }, [filteredDayBookings, statusFilter]);
 
   const totalGridHeight = timeSlots.length * SLOT_ROW_HEIGHT;
   const activeTherapistCount = visibleTherapists.filter((t) => t.is_active).length;
@@ -171,45 +195,130 @@ export function DailyCalendarView({
           </div>
         </div>
 
-        <div className="mt-4 flex flex-wrap items-center justify-between gap-3 border-t border-neutral-200 pt-4">
-          <div
-            role="tablist"
-            aria-label="Filter status reservasi"
-            className="inline-flex flex-wrap items-center gap-1 rounded-xl bg-neutral-100 p-1"
-          >
-            {(
-              [
-                { key: 'ALL', label: 'Semua' },
-                { key: 'SCHEDULED', label: 'Terjadwal' },
-                { key: 'COMPLETED', label: 'Selesai' },
-                { key: 'CANCELLED', label: 'Dibatalkan' },
-              ] as const
-            ).map((tab) => {
-              const active = statusFilter === tab.key;
-              return (
-                <button
-                  key={tab.key}
-                  type="button"
-                  role="tab"
-                  aria-selected={active}
-                  onClick={() => setStatusFilter(tab.key)}
-                  className={`min-h-[36px] rounded-lg px-3 py-1.5 text-sm font-medium transition-colors whitespace-nowrap focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-amber-700 ${
-                    active
-                      ? 'bg-white text-neutral-900 shadow-xs'
-                      : 'text-neutral-600 hover:text-neutral-900'
-                  }`}
-                >
-                  {tab.label}
-                </button>
-              );
-            })}
+        <div className="mt-4 space-y-3 border-t border-neutral-200 pt-4">
+          <div className="flex flex-wrap items-end justify-between gap-3">
+            <div
+              role="tablist"
+              aria-label="Filter status reservasi"
+              className="inline-flex flex-wrap items-center gap-1 rounded-xl bg-neutral-100 p-1"
+            >
+              {(
+                [
+                  { key: 'ALL', label: 'Semua' },
+                  { key: 'SCHEDULED', label: 'Terjadwal' },
+                  { key: 'COMPLETED', label: 'Selesai' },
+                  { key: 'CANCELLED', label: 'Dibatalkan' },
+                ] as const
+              ).map((tab) => {
+                const active = statusFilter === tab.key;
+                return (
+                  <button
+                    key={tab.key}
+                    type="button"
+                    role="tab"
+                    aria-selected={active}
+                    onClick={() => setStatusFilter(tab.key)}
+                    className={`min-h-[36px] rounded-lg px-3 py-1.5 text-sm font-medium transition-colors whitespace-nowrap focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-amber-700 ${
+                      active
+                        ? 'bg-white text-neutral-900 shadow-xs'
+                        : 'text-neutral-600 hover:text-neutral-900'
+                    }`}
+                  >
+                    {tab.label}
+                  </button>
+                );
+              })}
+            </div>
+
+            <div className="w-full sm:w-auto sm:min-w-[280px]">
+              <label
+                htmlFor="calendar-service-search"
+                className="block text-sm font-medium text-neutral-800"
+              >
+                Cari Layanan
+              </label>
+              <div className="relative mt-1 flex items-center">
+                <Search className="pointer-events-none absolute left-3 h-4 w-4 text-neutral-500" />
+                <input
+                  id="calendar-service-search"
+                  name="calendarServiceSearch"
+                  type="search"
+                  value={serviceQuery}
+                  onChange={(e) => setServiceQuery(e.target.value)}
+                  placeholder="Cari Pijat, Facial, atau durasi…"
+                  className="min-h-[44px] w-full rounded-xl border border-neutral-200 bg-white pr-10 pl-9 text-base text-neutral-900 placeholder:text-neutral-500 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-amber-700"
+                />
+                {serviceQuery && (
+                  <button
+                    type="button"
+                    onClick={() => setServiceQuery('')}
+                    aria-label="Hapus pencarian layanan"
+                    className="absolute right-1.5 flex h-9 w-9 items-center justify-center rounded-lg text-neutral-500 hover:bg-neutral-100 hover:text-neutral-900 focus-visible:outline-2 focus-visible:outline-amber-700"
+                  >
+                    <X className="h-4 w-4" />
+                  </button>
+                )}
+              </div>
+            </div>
           </div>
 
-          <p className="text-sm text-neutral-600">
-            {isTherapistRole
-              ? 'Klik blok jadwal untuk melihat rincian layanan dan alamat pasien.'
-              : 'Klik slot kosong untuk langsung menjadwalkan terapis.'}
-          </p>
+          {trimmedServiceQuery ? (
+            <div className="rounded-xl border border-neutral-200 bg-neutral-50 p-3">
+              <div className="flex flex-wrap items-center justify-between gap-2 text-sm">
+                <span className="font-medium text-neutral-800 tabular-nums">
+                  Menampilkan {filteredDayBookings.length} jadwal cocok ·{' '}
+                  {matchedCatalogServices.length} layanan ditemukan
+                </span>
+                <button
+                  type="button"
+                  onClick={() => setServiceQuery('')}
+                  className="text-sm font-medium text-amber-800 hover:underline focus-visible:outline-2 focus-visible:outline-amber-700"
+                >
+                  Reset Pencarian
+                </button>
+              </div>
+              {matchedCatalogServices.length > 0 ? (
+                <div className="mt-2.5 flex flex-wrap gap-2">
+                  {matchedCatalogServices.map((svc) =>
+                    !isTherapistRole && onCreateWithService ? (
+                      <button
+                        key={svc.service_id}
+                        type="button"
+                        onClick={() => onCreateWithService(svc.service_id)}
+                        className="inline-flex min-h-[40px] items-center gap-2 rounded-xl border border-neutral-200 bg-white px-3 py-1.5 text-left text-sm text-neutral-900 hover:border-amber-700 hover:bg-amber-50 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-amber-700"
+                      >
+                        <Plus className="h-3.5 w-3.5 shrink-0 text-amber-700" />
+                        <span className="font-medium">{svc.service_name}</span>
+                        <span className="text-xs text-neutral-600 tabular-nums">
+                          {svc.duration_minutes} mnt · {formatRupiah(svc.price)}
+                        </span>
+                      </button>
+                    ) : (
+                      <span
+                        key={svc.service_id}
+                        className="inline-flex min-h-[36px] items-center gap-2 rounded-xl border border-neutral-200 bg-white px-3 py-1.5 text-sm text-neutral-900"
+                      >
+                        <span className="font-medium">{svc.service_name}</span>
+                        <span className="text-xs text-neutral-600 tabular-nums">
+                          {svc.duration_minutes} mnt · {formatRupiah(svc.price)}
+                        </span>
+                      </span>
+                    )
+                  )}
+                </div>
+              ) : (
+                <p className="mt-1.5 text-sm text-neutral-600">
+                  Tidak ada layanan di katalog yang cocok dengan kata kunci tersebut.
+                </p>
+              )}
+            </div>
+          ) : (
+            <p className="text-sm text-neutral-600">
+              {isTherapistRole
+                ? 'Klik blok jadwal untuk melihat rincian layanan dan alamat pasien.'
+                : 'Klik slot kosong untuk langsung menjadwalkan terapis.'}
+            </p>
+          )}
         </div>
 
         {statusFilter !== 'CANCELLED' && (

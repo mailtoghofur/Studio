@@ -192,8 +192,15 @@ export function ReceiptsView({
                       <CheckCircle2 className="h-3 w-3" />
                       <span>Selesai</span>
                     </span>
+                    {!booking.is_loyalty_reward &&
+                      booking.discount_percent &&
+                      booking.discount_percent > 0 && (
+                        <span className="inline-flex items-center rounded-full bg-amber-50 px-2.5 py-0.5 text-xs font-medium text-amber-800">
+                          Diskon {booking.discount_percent}%
+                        </span>
+                      )}
                     {booking.receipt_revised_at && (
-                      <span className="inline-flex items-center rounded-full bg-amber-50 px-2.5 py-0.5 text-xs font-medium text-amber-800">
+                      <span className="inline-flex items-center rounded-full bg-neutral-100 px-2.5 py-0.5 text-xs font-medium text-neutral-800">
                         Diperbaiki
                       </span>
                     )}

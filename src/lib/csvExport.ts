@@ -3,7 +3,7 @@
 import { CATEGORY_LABELS } from '../config';
 import type { CustomerLoyaltySummary } from './loyalty';
 import type { RevenueReport } from './revenue';
-import type { Booking, Service, Therapist } from './types';
+import type { Booking, ProductSale, Service, Therapist } from './types';
 
 function escapeCsvCell(value: string | number | boolean): string {
   const str = String(value ?? '');
@@ -116,14 +116,30 @@ export function exportRevenueCsv(report: RevenueReport): void {
     `${row.share_percent}%`,
   ]);
 
+  for (const row of report.byProduct) {
+    rows.push([
+      'Penjualan Produk',
+      report.range.label,
+      scopeLabel,
+      row.product_id,
+      row.product_name,
+      'Produk',
+      row.unit_count,
+      '-',
+      row.total_revenue,
+      row.total_commission,
+      `${row.share_percent}%`,
+    ]);
+  }
+
   rows.push([
-    'Layanan',
+    'Ringkasan',
     report.range.label,
     scopeLabel,
     '-',
-    'TOTAL PENDAPATAN',
+    'TOTAL OMZET (LAYANAN + PRODUK)',
     '-',
-    report.totalSessions,
+    report.totalSessions + report.totalProductTransactions,
     '-',
     report.totalRevenue,
     report.totalCommission,
@@ -138,7 +154,7 @@ export function exportRevenueCsv(report: RevenueReport): void {
       t.therapist_id,
       t.therapist_name,
       'Terapis',
-      t.session_count,
+      t.session_count + t.product_count,
       '-',
       t.total_revenue,
       t.total_commission,
@@ -189,6 +205,40 @@ export function exportLoyaltyCsv(customers: CustomerLoyaltySummary[]): void {
       c.available_rewards_count,
       c.redeemed_rewards_count,
       c.last_booking_date,
+    ])
+  );
+}
+
+export function exportProductSalesCsv(
+  sales: ProductSale[],
+  therapists: Therapist[]
+): void {
+  const therapistMap = new Map(therapists.map((t) => [t.therapist_id, t.name]));
+  downloadCsvFile(
+    'penjualan-produk-klinik.csv',
+    [
+      'sale_id',
+      'sale_date',
+      'product_name',
+      'therapist_name',
+      'buyer_name',
+      'quantity',
+      'unit_price',
+      'total_amount',
+      'commission_10_persen',
+      'status',
+    ],
+    sales.map((s) => [
+      s.sale_id,
+      s.sale_date,
+      s.product_name,
+      therapistMap.get(s.therapist_id) ?? s.therapist_id,
+      s.buyer_name || '-',
+      s.quantity,
+      s.unit_price,
+      s.total_amount,
+      s.status === 'CANCELLED' ? 0 : Math.round(s.total_amount * 0.1),
+      s.status,
     ])
   );
 }
