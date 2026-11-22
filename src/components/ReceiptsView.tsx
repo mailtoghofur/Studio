@@ -1,8 +1,9 @@
 // Halaman daftar dan perbaikan resi untuk seluruh reservasi berstatus Selesai (FT-05).
 
-import { CheckCircle2, FilePenLine, Printer, Search } from 'lucide-react';
+import { CheckCircle2, FilePenLine, Layers, Printer, Search } from 'lucide-react';
 import { useMemo, useState } from 'react';
 import { formatDateIndo, formatPhoneDisplay, formatRupiah, formatTimeRange } from '../lib/format';
+import { findSameTimeCompletedBookings } from '../lib/receipt';
 import { getBookingEffectivePrice } from '../lib/revenue';
 import type { Booking, Service, Therapist } from '../lib/types';
 
@@ -177,6 +178,7 @@ export function ReceiptsView({
             const service = serviceMap.get(booking.service_id);
             const therapist = therapistMap.get(booking.therapist_id);
             const price = getBookingEffectivePrice(booking, service);
+            const sameTimeCount = findSameTimeCompletedBookings(booking, completedBookings).length;
 
             return (
               <div
@@ -192,6 +194,12 @@ export function ReceiptsView({
                       <CheckCircle2 className="h-3 w-3" />
                       <span>Selesai</span>
                     </span>
+                    {sameTimeCount > 1 && (
+                      <span className="inline-flex items-center gap-1 rounded-full bg-amber-50 px-2.5 py-0.5 text-xs font-medium text-amber-800 tabular-nums">
+                        <Layers className="h-3 w-3" />
+                        <span>Resi Gabungan ({sameTimeCount} paket)</span>
+                      </span>
+                    )}
                     {!booking.is_loyalty_reward &&
                       booking.discount_percent &&
                       booking.discount_percent > 0 && (

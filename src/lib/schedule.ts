@@ -2,12 +2,17 @@
 
 import { CATEGORY_LABELS, CLINIC_HOURS } from '../config';
 import { formatTimeDisplay, formatTimeRange, normalizeIndoPhone, parseDateParts } from './format';
+import { findCustomerLoyaltyByPhone, isStandardRewardService } from './loyalty';
 import type {
   Booking,
   BookingFormInput,
+  BookingPackageItemErrors,
   BookingValidationErrors,
   BookingValidationResult,
   LocationType,
+  MultiBookingFormInput,
+  MultiBookingResolvedItem,
+  MultiBookingValidationResult,
   OperatingHoursCheck,
   Service,
   Therapist,
@@ -109,10 +114,20 @@ export function getTherapistAvailabilities(params: {
   startTime: string;
   durationMinutes: number;
   excludeBookingId?: string;
+  customerPhone?: string;
 }): TherapistAvailability[] {
-  const { therapists, bookings, bookingDate, startTime, durationMinutes, excludeBookingId } = params;
+  const {
+    therapists,
+    bookings,
+    bookingDate,
+    startTime,
+    durationMinutes,
+    excludeBookingId,
+    customerPhone,
+  } = params;
   const validStart = isValidTimeFormat(startTime) && durationMinutes > 0;
   const endTime = validStart ? calculateEndTime(startTime, durationMinutes) : '';
+  const normalizedCustomerPhone = customerPhone ? normalizeIndoPhone(customerPhone) : null;
 
   return therapists.map((therapist) => {
     if (!therapist.is_active) {
@@ -138,9 +153,17 @@ export function getTherapistAvailabilities(params: {
         b.booking_id !== excludeBookingId
     );
 
-    const conflict = activeBookingsForTherapist.find((b) =>
-      hasTimeOverlap(startTime, endTime, b.start_time, b.end_time)
-    );
+    const conflict = activeBookingsForTherapist.find((b) => {
+      if (!hasTimeOverlap(startTime, endTime, b.start_time, b.end_time)) return false;
+      if (normalizedCustomerPhone) {
+        const existingPhone =
+          normalizeIndoPhone(b.patient_phone) ?? b.patient_phone.replace(/\D/g, '');
+        if (existingPhone === normalizedCustomerPhone && b.start_time === startTime) {
+          return false;
+        }
+      }
+      return true;
+    });
 
     if (conflict) {
       return {
@@ -240,6 +263,7 @@ export function validateBookingInput(
     startTime: input.start_time,
     durationMinutes: selectedService?.duration_minutes ?? 0,
     excludeBookingId: context.excludeBookingId,
+    customerPhone: input.patient_phone,
   });
 
   const anyTherapistAvailable = availabilities.some((a) => a.available);
@@ -368,3 +392,230 @@ export function validateAndCancelBooking(params: {
     updatedBooking,
   };
 }
+
+export function validateMultiPackageBookingInput(
+  input: MultiBookingFormInput,
+  context: {
+    services: Service[];
+    therapists: Therapist[];
+    bookings: Booking[];
+    excludeBookingId?: string;
+    allowExistingRewardEdit?: boolean;
+  }
+): MultiBookingValidationResult {
+  const sharedErrors: MultiBookingValidationResult['sharedErrors'] = {};
+  const itemErrors: Record<string, BookingPackageItemErrors> = {};
+
+  const trimmedName = input.patient_name.trim();
+  if (!trimmedName) {
+    sharedErrors.patient_name = 'Isi nama pasien terlebih dahulu, contoh: Budi Santoso.';
+  }
+
+  const normalizedPhone = normalizeIndoPhone(input.patient_phone);
+  if (!normalizedPhone) {
+    sharedErrors.patient_phone =
+      'Masukkan nomor WhatsApp/HP Indonesia yang valid, contoh: 081234567890 atau +6281234567890.';
+  }
+
+  if (!parseDateParts(input.booking_date)) {
+    sharedErrors.booking_date = 'Pilih tanggal layanan yang valid, contoh: 2026-11-20.';
+  }
+
+  const customerLoyalty = normalizedPhone
+    ? findCustomerLoyaltyByPhone(
+        normalizedPhone,
+        context.bookings,
+        context.services,
+        context.excludeBookingId
+      )
+    : null;
+  let remainingRewards = customerLoyalty?.available_rewards_count ?? 0;
+  if (context.allowExistingRewardEdit && remainingRewards === 0) {
+    remainingRewards = 1;
+  }
+
+  const resolvedItems: MultiBookingResolvedItem[] = [];
+
+  input.items.forEach((item) => {
+    const errorsForItem: BookingPackageItemErrors = {};
+    const selectedService = context.services.find((s) => s.service_id === item.service_id);
+    if (!selectedService) {
+      errorsForItem.service_id = 'Pilih salah satu paket layanan Pijat atau Facial.';
+    }
+
+    const effectiveLocationType = getEffectiveLocationType(selectedService, item.location_type);
+    const trimmedAddress = item.patient_address.trim();
+    if (
+      selectedService &&
+      selectedService.category === 'PIJAT' &&
+      effectiveLocationType === 'HOME_SERVICE' &&
+      !trimmedAddress
+    ) {
+      errorsForItem.patient_address =
+        'Alamat lengkap pasien wajib diisi untuk layanan Pijat di tempat pasien, contoh: Jl. Melati No. 12, Jakarta Selatan.';
+    }
+
+    let computedEndTime = '';
+    if (selectedService) {
+      const hoursCheck = validateOperatingHours(input.start_time, selectedService.duration_minutes);
+      computedEndTime = hoursCheck.endTime;
+      if (!hoursCheck.valid && hoursCheck.error) {
+        errorsForItem.start_time = hoursCheck.error;
+      }
+    } else if (!isValidTimeFormat(input.start_time)) {
+      errorsForItem.start_time = 'Pilih jam mulai layanan antara 10.00 sampai 20.30.';
+    }
+
+    let useReward = false;
+    if (item.is_loyalty_reward) {
+      if (!selectedService || !isStandardRewardService(selectedService.service_id, context.services)) {
+        errorsForItem.is_loyalty_reward =
+          'Hadiah gratis kesetiaan hanya berlaku untuk paket standar Pijat atau Facial.';
+      } else if (remainingRewards <= 0) {
+        errorsForItem.is_loyalty_reward =
+          'Hak hadiah gratis pelanggan sudah terpakai di paket lain atau belum tersedia.';
+      } else {
+        useReward = true;
+        remainingRewards -= 1;
+      }
+    }
+
+    const availabilities = getTherapistAvailabilities({
+      therapists: context.therapists,
+      bookings: context.bookings,
+      bookingDate: input.booking_date,
+      startTime: input.start_time,
+      durationMinutes: selectedService?.duration_minutes ?? 0,
+      excludeBookingId: context.excludeBookingId,
+      customerPhone: normalizedPhone ?? input.patient_phone,
+    });
+
+    const anyTherapistAvailable = availabilities.some((a) => a.available);
+
+    if (!item.therapist_id) {
+      errorsForItem.therapist_id = anyTherapistAvailable
+        ? 'Pilih salah satu terapis yang berstatus Tersedia.'
+        : 'Semua terapis aktif sudah terisi oleh pelanggan lain pada jam tersebut. Silakan pilih jam mulai lain.';
+    } else {
+      const selectedAvailability = availabilities.find(
+        (a) => a.therapist.therapist_id === item.therapist_id
+      );
+      if (!selectedAvailability) {
+        errorsForItem.therapist_id = 'Terapis tidak ditemukan. Silakan pilih ulang.';
+      } else if (!selectedAvailability.available) {
+        const otherAvailable = availabilities
+          .filter((a) => a.available)
+          .map((a) => a.therapist.name);
+        if (otherAvailable.length > 0) {
+          errorsForItem.therapist_id = `${selectedAvailability.therapist.name} tidak tersedia (${selectedAvailability.reason}). Pilih terapis tersedia: ${otherAvailable.join(', ')}.`;
+        } else {
+          errorsForItem.therapist_id = `Semua terapis tidak tersedia pada jam ini (${selectedAvailability.reason}). Pilih waktu lain.`;
+        }
+      }
+    }
+
+    if (Object.keys(errorsForItem).length > 0) {
+      itemErrors[item.item_id] = errorsForItem;
+    }
+
+    if (selectedService && item.therapist_id && computedEndTime) {
+      resolvedItems.push({
+        item_id: item.item_id,
+        service: selectedService,
+        therapist_id: item.therapist_id,
+        endTime: computedEndTime,
+        effectiveLocationType,
+        patient_address: effectiveLocationType === 'HOME_SERVICE' ? trimmedAddress : '',
+        is_loyalty_reward: useReward,
+        final_price: useReward ? 0 : selectedService.price,
+      });
+    }
+  });
+
+  const valid =
+    input.items.length > 0 &&
+    Object.keys(sharedErrors).length === 0 &&
+    Object.keys(itemErrors).length === 0 &&
+    normalizedPhone !== null &&
+    resolvedItems.length === input.items.length;
+
+  return {
+    valid,
+    sharedErrors,
+    itemErrors,
+    normalizedPhone,
+    resolvedItems,
+  };
+}
+
+export interface BookingLanePlacement {
+  laneIndex: number;
+  laneCount: number;
+}
+
+/**
+ * Menghitung posisi lajur berdampingan untuk blok jadwal yang bertabrakan di kolom satu terapis.
+ */
+export function layoutOverlappingBookings(
+  therapistBookings: Booking[]
+): Map<string, BookingLanePlacement> {
+  const result = new Map<string, BookingLanePlacement>();
+  if (therapistBookings.length === 0) return result;
+
+  const sorted = therapistBookings
+    .slice()
+    .sort((a, b) => {
+      const startDiff = timeToMinutes(a.start_time) - timeToMinutes(b.start_time);
+      if (startDiff !== 0) return startDiff;
+      const endDiff = timeToMinutes(b.end_time) - timeToMinutes(a.end_time);
+      if (endDiff !== 0) return endDiff;
+      return a.booking_id.localeCompare(b.booking_id);
+    });
+
+  const clusters: Booking[][] = [];
+  let currentCluster: Booking[] = [];
+  let clusterMaxEnd = -1;
+
+  for (const booking of sorted) {
+    const startMin = timeToMinutes(booking.start_time);
+    const endMin = Math.max(startMin + 1, timeToMinutes(booking.end_time));
+    if (currentCluster.length === 0 || startMin < clusterMaxEnd) {
+      currentCluster.push(booking);
+      clusterMaxEnd = Math.max(clusterMaxEnd, endMin);
+    } else {
+      clusters.push(currentCluster);
+      currentCluster = [booking];
+      clusterMaxEnd = endMin;
+    }
+  }
+  if (currentCluster.length > 0) {
+    clusters.push(currentCluster);
+  }
+
+  for (const cluster of clusters) {
+    const laneEnds: number[] = [];
+    const placements: Array<{ bookingId: string; laneIndex: number }> = [];
+
+    for (const booking of cluster) {
+      const startMin = timeToMinutes(booking.start_time);
+      const endMin = Math.max(startMin + 1, timeToMinutes(booking.end_time));
+      let assignedLane = laneEnds.findIndex((laneEnd) => laneEnd <= startMin);
+      if (assignedLane === -1) {
+        assignedLane = laneEnds.length;
+        laneEnds.push(endMin);
+      } else {
+        laneEnds[assignedLane] = endMin;
+      }
+      placements.push({ bookingId: booking.booking_id, laneIndex: assignedLane });
+    }
+
+    const laneCount = Math.max(1, laneEnds.length);
+    for (const p of placements) {
+      result.set(p.bookingId, { laneIndex: p.laneIndex, laneCount });
+    }
+  }
+
+  return result;
+}
+
+

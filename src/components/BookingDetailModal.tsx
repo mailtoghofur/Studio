@@ -1,4 +1,4 @@
-// Panel rincian reservasi untuk mengubah status (Selesai/Dibatalkan) dengan pilihan diskon 10% atau 20% serta penjadwalan ulang (FT-05).
+// Panel rincian reservasi untuk mengubah status (Selesai/Dibatalkan) dengan pilihan diskon 5% hingga 35% serta penjadwalan ulang (FT-05).
 
 import {
   CalendarClock,
@@ -41,6 +41,8 @@ interface BookingDetailModalProps {
   booking: Booking | null;
   service?: Service;
   therapist?: Therapist;
+  groupPackagesCount?: number;
+  completedGroupCount?: number;
   userRole: UserRole;
   onClose: () => void;
   onRequestStatusChange: (
@@ -57,6 +59,8 @@ export function BookingDetailModal({
   booking,
   service,
   therapist,
+  groupPackagesCount,
+  completedGroupCount,
   userRole,
   onClose,
   onRequestStatusChange,
@@ -245,6 +249,24 @@ export function BookingDetailModal({
               </dd>
             </div>
 
+            {groupPackagesCount && groupPackagesCount > 1 && (
+              <div className="flex items-center justify-between gap-4 px-4 py-3">
+                <dt className="text-neutral-600">Pesanan Multi-Paket</dt>
+                <dd className="font-medium text-amber-800 tabular-nums">
+                  {groupPackagesCount} paket pada waktu yang sama
+                </dd>
+              </div>
+            )}
+
+            {isCompleted && completedGroupCount && completedGroupCount > 1 && (
+              <div className="flex items-center justify-between gap-4 px-4 py-3">
+                <dt className="text-neutral-600">Resi Gabungan</dt>
+                <dd className="font-medium text-emerald-800 tabular-nums">
+                  Tersedia ({completedGroupCount} paket selesai)
+                </dd>
+              </div>
+            )}
+
             {booking.notes && (
               <div className="flex items-start justify-between gap-4 px-4 py-3">
                 <dt className="text-neutral-600">Catatan</dt>
@@ -306,7 +328,7 @@ export function BookingDetailModal({
                   <div
                     role="radiogroup"
                     aria-label="Pilihan status diskon treatment"
-                    className="mt-3 grid grid-cols-1 gap-2 sm:grid-cols-3"
+                    className="mt-3 grid grid-cols-2 gap-2 sm:grid-cols-4"
                   >
                     {TREATMENT_DISCOUNT_OPTIONS.map((pct) => {
                       const active = selectedDiscount === pct;

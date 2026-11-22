@@ -41,9 +41,31 @@ interface SerialApiLike {
   requestPort: () => Promise<SerialPortLike>;
 }
 
+export interface ReceiptLineItem {
+  bookingId: string;
+  serviceName: string;
+  categoryLabel: string;
+  durationLabel: string;
+  scheduleTimeLabel: string;
+  therapistName: string;
+  locationLabel: string;
+  patientAddress?: string;
+  notes?: string;
+  isLoyaltyReward: boolean;
+  basePriceAmount: number;
+  discountPercent: TreatmentDiscountPercent;
+  discountAmount: number;
+  priceAmount: number;
+  formattedTotal: string;
+  isRevised: boolean;
+}
+
 export interface ReceiptData {
   receiptNumber: string;
   bookingId: string;
+  isCombined: boolean;
+  packageCount: number;
+  items: ReceiptLineItem[];
   clinicName: string;
   printedAtLabel: string;
   statusLabel: string;
@@ -92,13 +114,44 @@ export function formatReceiptPrintedAt(date: Date): string {
   return `${formatDateIndo(`${y}-${m}-${d}`)}, ${hh}.${mm} WIB`;
 }
 
-export function buildReceiptData(params: {
+export function findSameTimeCompletedBookings(
+  targetBooking: Booking,
+  allBookings: Booking[]
+): Booking[] {
+  if (targetBooking.status !== 'COMPLETED') return [];
+  const targetPhone =
+    normalizeIndoPhone(targetBooking.patient_phone) ??
+    targetBooking.patient_phone.replace(/\D/g, '');
+
+  const matches = allBookings.filter((b) => {
+    if (b.status !== 'COMPLETED') return false;
+    if (b.booking_date !== targetBooking.booking_date) return false;
+    if (b.start_time !== targetBooking.start_time) return false;
+    if (
+      targetBooking.order_group_id &&
+      b.order_group_id === targetBooking.order_group_id
+    ) {
+      return true;
+    }
+    const phone =
+      normalizeIndoPhone(b.patient_phone) ?? b.patient_phone.replace(/\D/g, '');
+    return Boolean(targetPhone) && phone === targetPhone;
+  });
+
+  if (matches.length === 0) return [targetBooking];
+  return matches.slice().sort((a, b) => {
+    const createdDiff = a.created_at.localeCompare(b.created_at);
+    if (createdDiff !== 0) return createdDiff;
+    return a.booking_id.localeCompare(b.booking_id);
+  });
+}
+
+function buildLineItem(params: {
   booking: Booking;
   service?: Service;
   therapist?: Therapist;
-  printedAt?: Date;
-}): ReceiptData {
-  const { booking, service, therapist, printedAt = new Date() } = params;
+}): ReceiptLineItem {
+  const { booking, service, therapist } = params;
   const isLoyaltyReward = Boolean(booking.is_loyalty_reward);
   const priceAmount = isLoyaltyReward
     ? 0
@@ -123,24 +176,11 @@ export function buildReceiptData(params: {
         ? Math.round(basePriceAmount * (discountPercent / 100))
         : 0;
 
-  const parsedRevised = booking.receipt_revised_at ? new Date(booking.receipt_revised_at) : null;
-  const revisedAtLabel =
-    parsedRevised && !Number.isNaN(parsedRevised.getTime())
-      ? formatReceiptPrintedAt(parsedRevised)
-      : undefined;
-
   return {
-    receiptNumber: `RESI-${booking.booking_id}`,
     bookingId: booking.booking_id,
-    clinicName: CLINIC_NAME,
-    printedAtLabel: formatReceiptPrintedAt(printedAt),
-    statusLabel: STATUS_LABELS[booking.status],
-    patientName: booking.patient_name,
-    patientPhone: formatPhoneDisplay(booking.patient_phone),
     serviceName: service?.service_name ?? booking.service_id,
     categoryLabel: service ? CATEGORY_LABELS[service.category] : '-',
     durationLabel: service ? `${service.duration_minutes} menit` : '-',
-    scheduleDateLabel: formatWeekdayDateIndo(booking.booking_date),
     scheduleTimeLabel: `${formatTimeRange(booking.start_time, booking.end_time)} WIB`,
     therapistName: therapist?.name ?? booking.therapist_id,
     locationLabel: LOCATION_LABELS[booking.location_type],
@@ -153,16 +193,178 @@ export function buildReceiptData(params: {
     basePriceAmount,
     discountPercent,
     discountAmount,
-    formattedBasePrice: formatRupiah(basePriceAmount),
-    formattedDiscount:
-      discountPercent > 0 && discountAmount > 0
-        ? `${getTreatmentDiscountLabel(discountPercent)} (-${formatRupiah(discountAmount)})`
-        : getTreatmentDiscountLabel(0),
     priceAmount,
     formattedTotal: isLoyaltyReward ? 'Rp0 (Gratis Kesetiaan)' : formatRupiah(priceAmount),
     isRevised: Boolean(booking.receipt_revised_at),
+  };
+}
+
+export function buildReceiptData(params: {
+  booking: Booking;
+  service?: Service;
+  therapist?: Therapist;
+  printedAt?: Date;
+}): ReceiptData {
+  const { booking, service, therapist, printedAt = new Date() } = params;
+  const item = buildLineItem({ booking, service, therapist });
+
+  const parsedRevised = booking.receipt_revised_at ? new Date(booking.receipt_revised_at) : null;
+  const revisedAtLabel =
+    parsedRevised && !Number.isNaN(parsedRevised.getTime())
+      ? formatReceiptPrintedAt(parsedRevised)
+      : undefined;
+
+  return {
+    receiptNumber: `RESI-${booking.booking_id}`,
+    bookingId: booking.booking_id,
+    isCombined: false,
+    packageCount: 1,
+    items: [item],
+    clinicName: CLINIC_NAME,
+    printedAtLabel: formatReceiptPrintedAt(printedAt),
+    statusLabel: STATUS_LABELS[booking.status],
+    patientName: booking.patient_name,
+    patientPhone: formatPhoneDisplay(booking.patient_phone),
+    serviceName: item.serviceName,
+    categoryLabel: item.categoryLabel,
+    durationLabel: item.durationLabel,
+    scheduleDateLabel: formatWeekdayDateIndo(booking.booking_date),
+    scheduleTimeLabel: item.scheduleTimeLabel,
+    therapistName: item.therapistName,
+    locationLabel: item.locationLabel,
+    patientAddress: item.patientAddress,
+    notes: item.notes,
+    isLoyaltyReward: item.isLoyaltyReward,
+    basePriceAmount: item.basePriceAmount,
+    discountPercent: item.discountPercent,
+    discountAmount: item.discountAmount,
+    formattedBasePrice: formatRupiah(item.basePriceAmount),
+    formattedDiscount:
+      item.discountPercent > 0 && item.discountAmount > 0
+        ? `${getTreatmentDiscountLabel(item.discountPercent)} (-${formatRupiah(item.discountAmount)})`
+        : getTreatmentDiscountLabel(0),
+    priceAmount: item.priceAmount,
+    formattedTotal: item.formattedTotal,
+    isRevised: item.isRevised,
     revisedAtLabel,
     revisionReason: booking.receipt_revision_reason || undefined,
+  };
+}
+
+export function buildCombinedReceiptData(params: {
+  bookings: Booking[];
+  services: Service[];
+  therapists: Therapist[];
+  printedAt?: Date;
+}): ReceiptData | null {
+  const { bookings, services, therapists, printedAt = new Date() } = params;
+  const completed = bookings
+    .filter((b) => b.status === 'COMPLETED')
+    .slice()
+    .sort((a, b) => {
+      const createdDiff = a.created_at.localeCompare(b.created_at);
+      if (createdDiff !== 0) return createdDiff;
+      return a.booking_id.localeCompare(b.booking_id);
+    });
+
+  if (completed.length === 0) return null;
+
+  const serviceMap = new Map(services.map((s) => [s.service_id, s]));
+  const therapistMap = new Map(therapists.map((t) => [t.therapist_id, t]));
+
+  if (completed.length === 1) {
+    const only = completed[0];
+    return buildReceiptData({
+      booking: only,
+      service: serviceMap.get(only.service_id),
+      therapist: therapistMap.get(only.therapist_id),
+      printedAt,
+    });
+  }
+
+  const primary = completed[0];
+  const items = completed.map((b) =>
+    buildLineItem({
+      booking: b,
+      service: serviceMap.get(b.service_id),
+      therapist: therapistMap.get(b.therapist_id),
+    })
+  );
+
+  const basePriceAmount = items.reduce((sum, it) => sum + it.basePriceAmount, 0);
+  const discountAmount = items.reduce((sum, it) => sum + it.discountAmount, 0);
+  const priceAmount = items.reduce((sum, it) => sum + it.priceAmount, 0);
+  const allLoyalty = items.every((it) => it.isLoyaltyReward);
+
+  const uniqueTherapists = Array.from(new Set(items.map((it) => it.therapistName)));
+  const uniqueLocations = Array.from(new Set(items.map((it) => it.locationLabel)));
+  const uniqueAddresses = Array.from(
+    new Set(items.map((it) => it.patientAddress).filter((a): a is string => Boolean(a)))
+  );
+  const uniqueNotes = Array.from(
+    new Set(items.map((it) => it.notes).filter((n): n is string => Boolean(n)))
+  );
+  const uniqueRevisionReasons = Array.from(
+    new Set(
+      completed
+        .map((b) => b.receipt_revision_reason)
+        .filter((r): r is string => Boolean(r))
+    )
+  );
+  const latestRevisedIso = completed
+    .map((b) => b.receipt_revised_at)
+    .filter((d): d is string => Boolean(d))
+    .sort()
+    .pop();
+  const parsedRevised = latestRevisedIso ? new Date(latestRevisedIso) : null;
+  const revisedAtLabel =
+    parsedRevised && !Number.isNaN(parsedRevised.getTime())
+      ? formatReceiptPrintedAt(parsedRevised)
+      : undefined;
+
+  const earliestStart = completed
+    .map((b) => b.start_time)
+    .sort()[0];
+  const latestEnd = completed
+    .map((b) => b.end_time)
+    .sort()
+    .pop() ?? primary.end_time;
+
+  const groupId = completed.find((b) => b.order_group_id)?.order_group_id;
+  const receiptNumber = groupId ? `RESI-${groupId}` : `RESI-GAB-${primary.booking_id}`;
+
+  return {
+    receiptNumber,
+    bookingId: primary.booking_id,
+    isCombined: true,
+    packageCount: items.length,
+    items,
+    clinicName: CLINIC_NAME,
+    printedAtLabel: formatReceiptPrintedAt(printedAt),
+    statusLabel: STATUS_LABELS.COMPLETED,
+    patientName: primary.patient_name,
+    patientPhone: formatPhoneDisplay(primary.patient_phone),
+    serviceName: `${items.length} Paket Layanan`,
+    categoryLabel: Array.from(new Set(items.map((it) => it.categoryLabel))).join(' & '),
+    durationLabel: `${items.length} sesi`,
+    scheduleDateLabel: formatWeekdayDateIndo(primary.booking_date),
+    scheduleTimeLabel: `${formatTimeRange(earliestStart, latestEnd)} WIB`,
+    therapistName: uniqueTherapists.join(', '),
+    locationLabel: uniqueLocations.join(', '),
+    patientAddress: uniqueAddresses.length > 0 ? uniqueAddresses.join('; ') : undefined,
+    notes: uniqueNotes.length > 0 ? uniqueNotes.join(' | ') : undefined,
+    isLoyaltyReward: allLoyalty,
+    basePriceAmount,
+    discountPercent: 0,
+    discountAmount,
+    formattedBasePrice: formatRupiah(basePriceAmount),
+    formattedDiscount:
+      discountAmount > 0 ? `Potongan -${formatRupiah(discountAmount)}` : getTreatmentDiscountLabel(0),
+    priceAmount,
+    formattedTotal: allLoyalty && priceAmount === 0 ? 'Rp0 (Gratis Kesetiaan)' : formatRupiah(priceAmount),
+    isRevised: Boolean(latestRevisedIso),
+    revisedAtLabel,
+    revisionReason: uniqueRevisionReasons.length > 0 ? uniqueRevisionReasons.join(' | ') : undefined,
   };
 }
 
@@ -174,11 +376,19 @@ export function buildReceiptPdf(receipt: ReceiptData): jsPDF {
   });
 
   const pageWidth = doc.internal.pageSize.getWidth();
+  const pageHeight = doc.internal.pageSize.getHeight();
   const marginX = 14;
   const labelWidth = 36;
   const valueStartX = marginX + labelWidth + 4;
   const valueMaxWidth = pageWidth - marginX - valueStartX;
   let y = 18;
+
+  const ensureSpace = (neededMm: number) => {
+    if (y + neededMm > pageHeight - 16) {
+      doc.addPage();
+      y = 18;
+    }
+  };
 
   // Header Klinik
   doc.setTextColor(23, 23, 23);
@@ -190,7 +400,12 @@ export function buildReceiptPdf(receipt: ReceiptData): jsPDF {
   doc.setFont('helvetica', 'normal');
   doc.setFontSize(10);
   doc.setTextColor(82, 82, 82);
-  doc.text('Resi Pemesanan Layanan', pageWidth / 2, y, { align: 'center' });
+  doc.text(
+    receipt.isCombined ? 'Resi Pemesanan Gabungan' : 'Resi Pemesanan Layanan',
+    pageWidth / 2,
+    y,
+    { align: 'center' }
+  );
 
   y += 6;
   doc.setDrawColor(212, 212, 212);
@@ -198,14 +413,17 @@ export function buildReceiptPdf(receipt: ReceiptData): jsPDF {
   y += 7;
 
   const drawRow = (label: string, value: string, boldValue = false) => {
-    doc.setFont('helvetica', 'normal');
+    doc.setFont('helvetica', boldValue ? 'bold' : 'normal');
     doc.setFontSize(9.5);
+    const wrapped = doc.splitTextToSize(value, valueMaxWidth) as string[];
+    ensureSpace(Math.max(1, wrapped.length) * 5 + 3);
+
+    doc.setFont('helvetica', 'normal');
     doc.setTextColor(82, 82, 82);
     doc.text(label, marginX, y);
 
     doc.setFont('helvetica', boldValue ? 'bold' : 'normal');
     doc.setTextColor(23, 23, 23);
-    const wrapped = doc.splitTextToSize(value, valueMaxWidth) as string[];
     doc.text(wrapped, pageWidth - marginX, y, { align: 'right' });
     y += Math.max(1, wrapped.length) * 5 + 1.5;
   };
@@ -223,29 +441,95 @@ export function buildReceiptPdf(receipt: ReceiptData): jsPDF {
 
   drawRow('Pasien', receipt.patientName, true);
   drawRow('Nomor HP', receipt.patientPhone);
-  drawRow(
-    'Layanan',
-    `${receipt.serviceName} (${receipt.categoryLabel}, ${receipt.durationLabel})`
-  );
   drawRow('Tanggal', receipt.scheduleDateLabel);
-  drawRow('Jam Sesi', receipt.scheduleTimeLabel);
-  drawRow('Terapis', receipt.therapistName);
-  drawRow('Lokasi', receipt.locationLabel);
 
-  if (receipt.patientAddress) {
-    drawRow('Alamat', receipt.patientAddress);
-  }
-  if (receipt.notes) {
-    drawRow('Catatan', receipt.notes);
-  }
-  if (receipt.revisionReason) {
-    drawRow('Ket. Revisi', receipt.revisionReason);
-  }
-  if (!receipt.isLoyaltyReward && receipt.discountPercent > 0 && receipt.discountAmount > 0) {
-    drawRow('Harga Paket', receipt.formattedBasePrice);
-    drawRow('Diskon', receipt.formattedDiscount);
+  if (receipt.isCombined && receipt.items.length > 1) {
+    drawRow('Jumlah Paket', `${receipt.items.length} paket`, true);
+    y += 1.5;
+    doc.line(marginX, y, pageWidth - marginX, y);
+    y += 6;
+
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(9.5);
+    doc.setTextColor(23, 23, 23);
+    doc.text('Rincian Paket Layanan', marginX, y);
+    y += 5.5;
+
+    receipt.items.forEach((item, index) => {
+      ensureSpace(22);
+      doc.setFont('helvetica', 'bold');
+      doc.setFontSize(9.5);
+      doc.setTextColor(23, 23, 23);
+      const titleLines = doc.splitTextToSize(
+        `${index + 1}. ${item.serviceName}`,
+        pageWidth - marginX * 2 - 36
+      ) as string[];
+      doc.text(titleLines, marginX, y);
+      doc.text(item.formattedTotal, pageWidth - marginX, y, { align: 'right' });
+      y += Math.max(1, titleLines.length) * 4.5 + 0.5;
+
+      doc.setFont('helvetica', 'normal');
+      doc.setFontSize(8.5);
+      doc.setTextColor(82, 82, 82);
+      const metaText = `${item.categoryLabel} (${item.durationLabel}) | ${item.scheduleTimeLabel} | Terapis: ${item.therapistName}`;
+      const metaLines = doc.splitTextToSize(metaText, pageWidth - marginX * 2) as string[];
+      doc.text(metaLines, marginX + 3, y);
+      y += Math.max(1, metaLines.length) * 4.2;
+
+      const locText = item.patientAddress
+        ? `Lokasi: ${item.locationLabel} - ${item.patientAddress}`
+        : `Lokasi: ${item.locationLabel}`;
+      const locLines = doc.splitTextToSize(locText, pageWidth - marginX * 2 - 3) as string[];
+      doc.text(locLines, marginX + 3, y);
+      y += Math.max(1, locLines.length) * 4.2;
+
+      if (!item.isLoyaltyReward && item.discountPercent > 0 && item.discountAmount > 0) {
+        doc.text(
+          `Harga awal ${formatRupiah(item.basePriceAmount)} · Diskon ${item.discountPercent}% (-${formatRupiah(item.discountAmount)})`,
+          marginX + 3,
+          y
+        );
+        y += 4.2;
+      }
+
+      y += 2;
+    });
+
+    if (receipt.notes) {
+      drawRow('Catatan', receipt.notes);
+    }
+    if (receipt.revisionReason) {
+      drawRow('Ket. Revisi', receipt.revisionReason);
+    }
+    if (receipt.discountAmount > 0) {
+      drawRow('Total Harga Paket', receipt.formattedBasePrice);
+      drawRow('Total Diskon', receipt.formattedDiscount);
+    }
+  } else {
+    drawRow(
+      'Layanan',
+      `${receipt.serviceName} (${receipt.categoryLabel}, ${receipt.durationLabel})`
+    );
+    drawRow('Jam Sesi', receipt.scheduleTimeLabel);
+    drawRow('Terapis', receipt.therapistName);
+    drawRow('Lokasi', receipt.locationLabel);
+
+    if (receipt.patientAddress) {
+      drawRow('Alamat', receipt.patientAddress);
+    }
+    if (receipt.notes) {
+      drawRow('Catatan', receipt.notes);
+    }
+    if (receipt.revisionReason) {
+      drawRow('Ket. Revisi', receipt.revisionReason);
+    }
+    if (!receipt.isLoyaltyReward && receipt.discountPercent > 0 && receipt.discountAmount > 0) {
+      drawRow('Harga Paket', receipt.formattedBasePrice);
+      drawRow('Diskon', receipt.formattedDiscount);
+    }
   }
 
+  ensureSpace(24);
   y += 2;
   doc.line(marginX, y, pageWidth - marginX, y);
   y += 8;
@@ -276,7 +560,8 @@ export function buildReceiptPdf(receipt: ReceiptData): jsPDF {
 
 export function downloadReceiptPdf(receipt: ReceiptData): void {
   const doc = buildReceiptPdf(receipt);
-  const safeId = receipt.bookingId.replace(/[^a-zA-Z0-9_-]/g, '_');
+  const rawSlug = receipt.isCombined ? receipt.receiptNumber : receipt.bookingId;
+  const safeId = rawSlug.replace(/[^a-zA-Z0-9_-]/g, '_');
   doc.save(`resi-${safeId}.pdf`);
 }
 
@@ -296,7 +581,7 @@ export function buildEscPosReceiptBytes(receipt: ReceiptData): Uint8Array {
 
   const textLines = [
     receipt.clinicName.toUpperCase(),
-    'RESI PEMESANAN LAYANAN',
+    receipt.isCombined ? 'RESI PEMESANAN GABUNGAN' : 'RESI PEMESANAN LAYANAN',
     divider,
     formatEscPosLine('No. Resi', receipt.receiptNumber),
     formatEscPosLine('Cetak', receipt.printedAtLabel),
@@ -304,26 +589,53 @@ export function buildEscPosReceiptBytes(receipt: ReceiptData): Uint8Array {
     divider,
     formatEscPosLine('Pasien', receipt.patientName),
     formatEscPosLine('HP', receipt.patientPhone),
-    `Layanan: ${receipt.serviceName}`,
-    formatEscPosLine('Durasi', receipt.durationLabel),
     formatEscPosLine('Tanggal', receipt.scheduleDateLabel),
-    formatEscPosLine('Jam', receipt.scheduleTimeLabel),
-    formatEscPosLine('Terapis', receipt.therapistName),
-    formatEscPosLine('Lokasi', receipt.locationLabel),
   ];
 
-  if (receipt.patientAddress) {
-    textLines.push(`Alamat: ${receipt.patientAddress}`);
-  }
-  if (receipt.notes) {
-    textLines.push(`Catatan: ${receipt.notes}`);
-  }
-  if (receipt.revisionReason) {
-    textLines.push(`Revisi: ${receipt.revisionReason}`);
-  }
-  if (!receipt.isLoyaltyReward && receipt.discountPercent > 0 && receipt.discountAmount > 0) {
-    textLines.push(formatEscPosLine('Harga Paket', receipt.formattedBasePrice));
-    textLines.push(formatEscPosLine('Diskon', `${receipt.discountPercent}% (-${formatRupiah(receipt.discountAmount)})`));
+  if (receipt.isCombined && receipt.items.length > 1) {
+    textLines.push(formatEscPosLine('Total Paket', `${receipt.items.length} paket`));
+    textLines.push(divider);
+    receipt.items.forEach((item, index) => {
+      textLines.push(`${index + 1}. ${item.serviceName}`);
+      textLines.push(`   ${item.scheduleTimeLabel} | ${item.therapistName}`);
+      textLines.push(`   ${item.locationLabel}${item.patientAddress ? ` (${item.patientAddress})` : ''}`);
+      if (!item.isLoyaltyReward && item.discountPercent > 0 && item.discountAmount > 0) {
+        textLines.push(`   Diskon ${item.discountPercent}% (-${formatRupiah(item.discountAmount)})`);
+      }
+      textLines.push(formatEscPosLine('   Subtotal', item.formattedTotal));
+    });
+    if (receipt.notes) {
+      textLines.push(`Catatan: ${receipt.notes}`);
+    }
+    if (receipt.revisionReason) {
+      textLines.push(`Revisi: ${receipt.revisionReason}`);
+    }
+    if (receipt.discountAmount > 0) {
+      textLines.push(divider);
+      textLines.push(formatEscPosLine('Harga Awal', receipt.formattedBasePrice));
+      textLines.push(formatEscPosLine('Total Diskon', `-${formatRupiah(receipt.discountAmount)}`));
+    }
+  } else {
+    textLines.push(
+      `Layanan: ${receipt.serviceName}`,
+      formatEscPosLine('Durasi', receipt.durationLabel),
+      formatEscPosLine('Jam', receipt.scheduleTimeLabel),
+      formatEscPosLine('Terapis', receipt.therapistName),
+      formatEscPosLine('Lokasi', receipt.locationLabel)
+    );
+    if (receipt.patientAddress) {
+      textLines.push(`Alamat: ${receipt.patientAddress}`);
+    }
+    if (receipt.notes) {
+      textLines.push(`Catatan: ${receipt.notes}`);
+    }
+    if (receipt.revisionReason) {
+      textLines.push(`Revisi: ${receipt.revisionReason}`);
+    }
+    if (!receipt.isLoyaltyReward && receipt.discountPercent > 0 && receipt.discountAmount > 0) {
+      textLines.push(formatEscPosLine('Harga Paket', receipt.formattedBasePrice));
+      textLines.push(formatEscPosLine('Diskon', `${receipt.discountPercent}% (-${formatRupiah(receipt.discountAmount)})`));
+    }
   }
 
   textLines.push(

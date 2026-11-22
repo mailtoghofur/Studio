@@ -6,7 +6,7 @@ export type LocationType = 'CLINIC' | 'HOME_SERVICE';
 
 export type BookingStatus = 'SCHEDULED' | 'COMPLETED' | 'CANCELLED';
 
-export type TreatmentDiscountPercent = 0 | 10 | 20;
+export type TreatmentDiscountPercent = 0 | 5 | 10 | 15 | 20 | 25 | 30 | 35;
 
 export type UserRole = 'ADMIN' | 'THERAPIST';
 
@@ -100,6 +100,8 @@ export interface Booking {
   cancelled_at?: string;
   /** Status asal sebelum reservasi dibatalkan. */
   cancelled_from_status?: BookingStatus;
+  /** ID grup pesanan saat pelanggan membeli lebih dari satu paket di hari dan waktu yang sama. */
+  order_group_id?: string;
   created_at: string;
   updated_at: string;
 }
@@ -159,6 +161,55 @@ export interface BookingValidationResult {
   endTime: string;
   normalizedPhone: string | null;
   effectiveLocationType: LocationType;
+}
+
+export interface BookingPackageDraftItem {
+  item_id: string;
+  service_id: string;
+  location_type: LocationType;
+  patient_address: string;
+  therapist_id: string;
+  is_loyalty_reward?: boolean;
+}
+
+export interface BookingPackageItemErrors {
+  service_id?: string;
+  patient_address?: string;
+  start_time?: string;
+  therapist_id?: string;
+  is_loyalty_reward?: string;
+}
+
+export interface MultiBookingFormInput {
+  patient_name: string;
+  patient_phone: string;
+  booking_date: string;
+  start_time: string;
+  notes: string;
+  items: BookingPackageDraftItem[];
+}
+
+export interface MultiBookingResolvedItem {
+  item_id: string;
+  service: Service;
+  therapist_id: string;
+  endTime: string;
+  effectiveLocationType: LocationType;
+  patient_address: string;
+  is_loyalty_reward: boolean;
+  final_price: number;
+}
+
+export interface MultiBookingValidationResult {
+  valid: boolean;
+  sharedErrors: {
+    patient_name?: string;
+    patient_phone?: string;
+    booking_date?: string;
+  };
+  itemErrors: Record<string, BookingPackageItemErrors>;
+  normalizedPhone: string | null;
+  resolvedItems: MultiBookingResolvedItem[];
 }
 
 export interface ConfirmDialogReasonField {

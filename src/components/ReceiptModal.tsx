@@ -1,12 +1,15 @@
-// Pratinjau resi pemesanan dengan unduh PDF serta cetak lewat sistem printer atau printer termal (FT-05).
+// Pratinjau resi pemesanan tunggal atau gabungan (multi-paket di jam yang sama) dengan unduh PDF serta cetak printer (FT-05).
 
-import { CheckCircle2, Download, FilePenLine, Printer, Usb, X } from 'lucide-react';
+import { CheckCircle2, Download, FilePenLine, Layers, Printer, Usb, X } from 'lucide-react';
 import { useEffect, useMemo, useState } from 'react';
 import { CLINIC_LOGO_SRC } from '../config';
+import { formatRupiah } from '../lib/format';
 import {
+  buildCombinedReceiptData,
   buildReceiptData,
   canPrintReceipt,
   downloadReceiptPdf,
+  findSameTimeCompletedBookings,
   isDirectThermalPrinterSupported,
   isSystemPrintSupported,
   printToThermalSerialPrinter,
@@ -17,6 +20,9 @@ interface ReceiptModalProps {
   booking: Booking | null;
   service?: Service;
   therapist?: Therapist;
+  allBookings?: Booking[];
+  services?: Service[];
+  therapists?: Therapist[];
   onClose: () => void;
   onEditReceipt?: (booking: Booking) => void;
 }
@@ -25,14 +31,19 @@ export function ReceiptModal({
   booking,
   service,
   therapist,
+  allBookings,
+  services,
+  therapists,
   onClose,
   onEditReceipt,
 }: ReceiptModalProps) {
   const [printError, setPrintError] = useState<string | null>(null);
   const [isPrintingThermal, setIsPrintingThermal] = useState(false);
+  const [combineMode, setCombineMode] = useState(true);
 
   useEffect(() => {
     setPrintError(null);
+    setCombineMode(true);
   }, [booking]);
 
   useEffect(() => {
@@ -46,10 +57,35 @@ export function ReceiptModal({
     return () => document.removeEventListener('keydown', handleKeyDown);
   }, [booking, onClose]);
 
+  const completedSiblings = useMemo(() => {
+    if (!booking || !canPrintReceipt(booking)) return [];
+    if (!allBookings || allBookings.length === 0) return [booking];
+    return findSameTimeCompletedBookings(booking, allBookings);
+  }, [booking, allBookings]);
+
+  const hasCombinableSiblings =
+    completedSiblings.length > 1 && Boolean(services) && Boolean(therapists);
+
   const receipt = useMemo(() => {
     if (!booking || !canPrintReceipt(booking)) return null;
+    if (hasCombinableSiblings && combineMode && services && therapists) {
+      return buildCombinedReceiptData({
+        bookings: completedSiblings,
+        services,
+        therapists,
+      });
+    }
     return buildReceiptData({ booking, service, therapist });
-  }, [booking, service, therapist]);
+  }, [
+    booking,
+    service,
+    therapist,
+    hasCombinableSiblings,
+    combineMode,
+    completedSiblings,
+    services,
+    therapists,
+  ]);
 
   if (!receipt) return null;
 
@@ -114,6 +150,50 @@ export function ReceiptModal({
           </button>
         </div>
 
+        {/* Pilihan Gabungan vs Tunggal bila pelanggan punya >1 paket selesai di jam sama */}
+        {hasCombinableSiblings && (
+          <div className="border-b border-neutral-200 bg-neutral-50 px-6 py-3 print:hidden">
+            <div className="flex items-center gap-2 text-xs font-medium text-neutral-700">
+              <Layers className="h-3.5 w-3.5 text-amber-700" />
+              <span>
+                Pelanggan memiliki {completedSiblings.length} paket selesai di jam mulai yang sama.
+              </span>
+            </div>
+            <div
+              role="radiogroup"
+              aria-label="Mode tampilan resi"
+              className="mt-2 grid grid-cols-2 gap-2"
+            >
+              <button
+                type="button"
+                role="radio"
+                aria-checked={combineMode}
+                onClick={() => setCombineMode(true)}
+                className={`min-h-[40px] rounded-xl border px-3 py-1.5 text-xs font-semibold transition-colors focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-amber-700 ${
+                  combineMode
+                    ? 'border-amber-700 bg-amber-50 text-amber-900'
+                    : 'border-neutral-200 bg-white text-neutral-700 hover:bg-neutral-100'
+                }`}
+              >
+                Gabungan ({completedSiblings.length} Paket)
+              </button>
+              <button
+                type="button"
+                role="radio"
+                aria-checked={!combineMode}
+                onClick={() => setCombineMode(false)}
+                className={`min-h-[40px] rounded-xl border px-3 py-1.5 text-xs font-semibold transition-colors focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-amber-700 ${
+                  !combineMode
+                    ? 'border-amber-700 bg-amber-50 text-amber-900'
+                    : 'border-neutral-200 bg-white text-neutral-700 hover:bg-neutral-100'
+                }`}
+              >
+                Paket Ini Saja
+              </button>
+            </div>
+          </div>
+        )}
+
         {/* Lembar Resi Cetak */}
         <article
           id="receipt-print-sheet"
@@ -129,7 +209,7 @@ export function ReceiptModal({
               {receipt.clinicName}
             </p>
             <p className="mt-0.5 text-sm font-semibold text-neutral-700">
-              Resi Pemesanan Layanan
+              {receipt.isCombined ? 'Resi Pemesanan Gabungan' : 'Resi Pemesanan Layanan'}
             </p>
             <div className="mt-2 inline-flex items-center gap-1.5 rounded-full bg-emerald-50 px-3 py-1 text-xs font-semibold text-emerald-800 print:border print:border-neutral-300 print:bg-white print:text-neutral-900">
               <CheckCircle2 className="h-3.5 w-3.5" />
@@ -174,43 +254,56 @@ export function ReceiptModal({
               </dd>
             </div>
             <div className="flex items-start justify-between gap-4">
-              <dt className="text-neutral-600">Layanan</dt>
-              <dd className="text-right font-medium text-neutral-900">
-                <span>{receipt.serviceName}</span>
-                <span className="block text-xs text-neutral-600">
-                  {receipt.categoryLabel} · {receipt.durationLabel}
-                </span>
-              </dd>
-            </div>
-            <div className="flex items-start justify-between gap-4">
               <dt className="text-neutral-600">Tanggal</dt>
               <dd className="text-right text-neutral-900">
                 {receipt.scheduleDateLabel}
               </dd>
             </div>
-            <div className="flex items-start justify-between gap-4">
-              <dt className="text-neutral-600">Jam Sesi</dt>
-              <dd className="text-right text-neutral-900 tabular-nums">
-                {receipt.scheduleTimeLabel}
-              </dd>
-            </div>
-            <div className="flex items-start justify-between gap-4">
-              <dt className="text-neutral-600">Terapis</dt>
-              <dd className="text-right font-medium text-neutral-900">
-                {receipt.therapistName}
-              </dd>
-            </div>
-            <div className="flex items-start justify-between gap-4">
-              <dt className="text-neutral-600">Lokasi</dt>
-              <dd className="max-w-[210px] text-right text-neutral-900">
-                <span>{receipt.locationLabel}</span>
-                {receipt.patientAddress && (
-                  <span className="mt-0.5 block text-xs text-neutral-600">
-                    {receipt.patientAddress}
-                  </span>
-                )}
-              </dd>
-            </div>
+
+            {receipt.isCombined && receipt.items.length > 1 ? (
+              <div className="flex items-start justify-between gap-4">
+                <dt className="text-neutral-600">Jumlah Paket</dt>
+                <dd className="text-right font-semibold text-neutral-900 tabular-nums">
+                  {receipt.packageCount} paket
+                </dd>
+              </div>
+            ) : (
+              <>
+                <div className="flex items-start justify-between gap-4">
+                  <dt className="text-neutral-600">Layanan</dt>
+                  <dd className="text-right font-medium text-neutral-900">
+                    <span>{receipt.serviceName}</span>
+                    <span className="block text-xs text-neutral-600">
+                      {receipt.categoryLabel} · {receipt.durationLabel}
+                    </span>
+                  </dd>
+                </div>
+                <div className="flex items-start justify-between gap-4">
+                  <dt className="text-neutral-600">Jam Sesi</dt>
+                  <dd className="text-right text-neutral-900 tabular-nums">
+                    {receipt.scheduleTimeLabel}
+                  </dd>
+                </div>
+                <div className="flex items-start justify-between gap-4">
+                  <dt className="text-neutral-600">Terapis</dt>
+                  <dd className="text-right font-medium text-neutral-900">
+                    {receipt.therapistName}
+                  </dd>
+                </div>
+                <div className="flex items-start justify-between gap-4">
+                  <dt className="text-neutral-600">Lokasi</dt>
+                  <dd className="max-w-[210px] text-right text-neutral-900">
+                    <span>{receipt.locationLabel}</span>
+                    {receipt.patientAddress && (
+                      <span className="mt-0.5 block text-xs text-neutral-600">
+                        {receipt.patientAddress}
+                      </span>
+                    )}
+                  </dd>
+                </div>
+              </>
+            )}
+
             {receipt.notes && (
               <div className="flex items-start justify-between gap-4">
                 <dt className="text-neutral-600">Catatan</dt>
@@ -229,16 +322,64 @@ export function ReceiptModal({
             )}
           </dl>
 
-          {!receipt.isLoyaltyReward && receipt.discountPercent > 0 && receipt.discountAmount > 0 && (
+          {/* Rincian Item Paket saat Mode Resi Gabungan */}
+          {receipt.isCombined && receipt.items.length > 1 && (
+            <div className="mt-4 border-b border-dashed border-neutral-300 pb-4">
+              <p className="text-xs font-semibold text-neutral-700">
+                Rincian Paket Layanan
+              </p>
+              <div className="mt-2 divide-y divide-dashed divide-neutral-200 text-sm">
+                {receipt.items.map((item, idx) => (
+                  <div key={item.bookingId} className="py-2.5 first:pt-1 last:pb-1">
+                    <div className="flex items-start justify-between gap-3">
+                      <span className="font-semibold text-neutral-900">
+                        {idx + 1}. {item.serviceName}
+                      </span>
+                      <span className="shrink-0 font-semibold text-neutral-900 tabular-nums">
+                        {item.formattedTotal}
+                      </span>
+                    </div>
+                    <p className="mt-0.5 text-xs text-neutral-600 tabular-nums">
+                      {item.categoryLabel} ({item.durationLabel}) · {item.scheduleTimeLabel} ·{' '}
+                      {item.therapistName}
+                    </p>
+                    <p className="mt-0.5 text-xs text-neutral-600">
+                      {item.locationLabel}
+                      {item.patientAddress ? ` · ${item.patientAddress}` : ''}
+                    </p>
+                    {!item.isLoyaltyReward &&
+                      item.discountPercent > 0 &&
+                      item.discountAmount > 0 && (
+                        <p className="mt-0.5 text-xs font-medium text-emerald-800 tabular-nums">
+                          Harga awal {formatRupiah(item.basePriceAmount)} · Diskon{' '}
+                          {item.discountPercent}% (-{formatRupiah(item.discountAmount)})
+                        </p>
+                      )}
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* Ringkasan Diskon (Tunggal atau Gabungan) */}
+          {((!receipt.isCombined &&
+            !receipt.isLoyaltyReward &&
+            receipt.discountPercent > 0 &&
+            receipt.discountAmount > 0) ||
+            (receipt.isCombined && receipt.discountAmount > 0)) && (
             <dl className="mt-4 space-y-2 border-b border-dashed border-neutral-300 pb-4 text-sm">
               <div className="flex items-start justify-between gap-4">
-                <dt className="text-neutral-600">Harga Paket</dt>
+                <dt className="text-neutral-600">
+                  {receipt.isCombined ? 'Total Harga Paket' : 'Harga Paket'}
+                </dt>
                 <dd className="text-right text-neutral-900 tabular-nums">
                   {receipt.formattedBasePrice}
                 </dd>
               </div>
               <div className="flex items-start justify-between gap-4">
-                <dt className="text-neutral-600">Status Diskon</dt>
+                <dt className="text-neutral-600">
+                  {receipt.isCombined ? 'Total Diskon' : 'Status Diskon'}
+                </dt>
                 <dd className="text-right font-medium text-emerald-800 tabular-nums">
                   {receipt.formattedDiscount}
                 </dd>

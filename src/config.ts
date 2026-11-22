@@ -112,12 +112,26 @@ export const STATUS_LABELS: Record<BookingStatus, string> = {
   CANCELLED: 'Dibatalkan',
 };
 
-export const TREATMENT_DISCOUNT_OPTIONS: readonly TreatmentDiscountPercent[] = [0, 10, 20];
+export const TREATMENT_DISCOUNT_OPTIONS: readonly TreatmentDiscountPercent[] = [
+  0,
+  5,
+  10,
+  15,
+  20,
+  25,
+  30,
+  35,
+];
 
 export const TREATMENT_DISCOUNT_LABELS: Record<TreatmentDiscountPercent, string> = {
   0: 'Tanpa Diskon',
+  5: 'Diskon 5%',
   10: 'Diskon 10%',
+  15: 'Diskon 15%',
   20: 'Diskon 20%',
+  25: 'Diskon 25%',
+  30: 'Diskon 30%',
+  35: 'Diskon 35%',
 };
 
 export const STORAGE_KEY = 'klinik_penjadwalan_v1';

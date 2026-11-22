@@ -35,6 +35,7 @@ export function exportBookingsCsv(bookings: Booking[]): void {
     'reservasi-klinik.csv',
     [
       'booking_id',
+      'order_group_id',
       'patient_name',
       'patient_phone',
       'service_id',
@@ -53,6 +54,7 @@ export function exportBookingsCsv(bookings: Booking[]): void {
     ],
     bookings.map((b) => [
       b.booking_id,
+      b.order_group_id ?? '',
       b.patient_name,
       b.patient_phone,
       b.service_id,

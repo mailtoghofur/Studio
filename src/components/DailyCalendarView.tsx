@@ -26,6 +26,7 @@ import {
 import {
   filterServicesByQuery,
   generateTimeSlotOptions,
+  layoutOverlappingBookings,
   matchesServiceSearch,
   timeToMinutes,
 } from '../lib/schedule';
@@ -373,6 +374,7 @@ export function DailyCalendarView({
                   const therapistBookings = gridBookings.filter(
                     (b) => b.therapist_id === therapist.therapist_id
                   );
+                  const lanePlacements = layoutOverlappingBookings(therapistBookings);
 
                   return (
                     <div
@@ -436,6 +438,10 @@ export function DailyCalendarView({
                           ((endMin - startMin) / CLINIC_HOURS.slotStepMinutes) * SLOT_ROW_HEIGHT
                         );
 
+                        const placement = lanePlacements.get(booking.booking_id) ?? {
+                          laneIndex: 0,
+                          laneCount: 1,
+                        };
                         const service = serviceMap.get(booking.service_id);
                         const isCompleted = booking.status === 'COMPLETED';
                         const isHome = booking.location_type === 'HOME_SERVICE';
@@ -445,8 +451,15 @@ export function DailyCalendarView({
                             key={booking.booking_id}
                             type="button"
                             onClick={() => onSelectBooking(booking)}
-                            style={{ top: `${topPx}px`, height: `${heightPx}px` }}
-                            className={`absolute inset-x-1 z-20 flex flex-col justify-between overflow-hidden rounded-xl border p-2 text-left transition-colors focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-amber-700 ${
+                            style={{
+                              top: `${topPx}px`,
+                              height: `${heightPx}px`,
+                              left: `calc(${(placement.laneIndex / placement.laneCount) * 100}% + 4px)`,
+                              width: `calc(${(1 / placement.laneCount) * 100}% - 8px)`,
+                            }}
+                            className={`absolute z-20 flex flex-col justify-between overflow-hidden rounded-xl border text-left transition-colors focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-amber-700 ${
+                              placement.laneCount > 1 ? 'p-1.5' : 'p-2'
+                            } ${
                               isCompleted
                                 ? 'border-emerald-300 bg-emerald-50 text-emerald-950 hover:bg-emerald-100/80'
                                 : 'border-amber-400 bg-amber-50 text-neutral-900 hover:bg-amber-100/70'

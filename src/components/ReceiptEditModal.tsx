@@ -587,7 +587,7 @@ export function ReceiptEditModal({
                 <div
                   role="radiogroup"
                   aria-label="Pilihan diskon treatment pada resi"
-                  className="mt-2 grid grid-cols-1 gap-2 sm:grid-cols-3"
+                  className="mt-2 grid grid-cols-2 gap-2 sm:grid-cols-4"
                 >
                   {TREATMENT_DISCOUNT_OPTIONS.map((pct) => {
                     const active = form.discount_percent === pct;

@@ -1,4 +1,4 @@
-// Perhitungan pilihan diskon 0%, 10%, dan 20% saat proses penyelesaian treatment (FT-05).
+// Perhitungan pilihan diskon 0%, 5%, 10%, 15%, 20%, 25%, 30%, dan 35% saat proses penyelesaian treatment (FT-05).
 
 import { TREATMENT_DISCOUNT_LABELS } from '../config';
 import type { TreatmentDiscountPercent } from './types';
@@ -10,9 +10,13 @@ export interface TreatmentDiscountCalculation {
   finalPrice: number;
 }
 
+const VALID_DISCOUNT_PERCENTS = new Set<number>([5, 10, 15, 20, 25, 30, 35]);
+
 export function normalizeTreatmentDiscountPercent(value: unknown): TreatmentDiscountPercent {
-  if (value === 10 || value === '10') return 10;
-  if (value === 20 || value === '20') return 20;
+  const num = typeof value === 'string' ? Number(value.trim()) : value;
+  if (typeof num === 'number' && VALID_DISCOUNT_PERCENTS.has(num)) {
+    return num as TreatmentDiscountPercent;
+  }
   return 0;
 }
 

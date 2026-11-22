@@ -53,6 +53,7 @@ import {
   getTodayYYYYMMDD,
 } from './lib/format';
 import { calculateProductSaleCommission } from './lib/products';
+import { findSameTimeCompletedBookings } from './lib/receipt';
 import {
   CANCELLATION_REASON_MAX_LENGTH,
   validateAndCancelBooking,
@@ -289,24 +290,32 @@ export default function App() {
 
   const handleRequestSaveBooking = async (payload: {
     mode: 'create' | 'reschedule';
-    booking: Booking;
-    serviceName: string;
-    therapistName: string;
+    bookings: Booking[];
+    summaryLabel: string;
   }) => {
-    const { mode, booking } = payload;
+    const { mode, bookings: nextBookings } = payload;
+    if (nextBookings.length === 0) return;
+
     updateActiveDatabase((prev) => ({
       ...prev,
       bookings:
         mode === 'reschedule'
-          ? prev.bookings.map((b) => (b.booking_id === booking.booking_id ? booking : b))
-          : [...prev.bookings, booking],
+          ? prev.bookings.map((b) =>
+              b.booking_id === nextBookings[0].booking_id ? nextBookings[0] : b
+            )
+          : [...prev.bookings, ...nextBookings],
     }));
 
+    const primaryBooking = nextBookings[0];
     if (mode === 'reschedule') {
-      setNoticeMessage(`Jadwal ${booking.patient_name} berhasil diperbarui.`);
+      setNoticeMessage(`Jadwal ${primaryBooking.patient_name} berhasil diperbarui.`);
     } else {
-      setSelectedDate(booking.booking_date);
-      setNoticeMessage(`Reservasi ${booking.patient_name} berhasil disimpan.`);
+      setSelectedDate(primaryBooking.booking_date);
+      setNoticeMessage(
+        nextBookings.length > 1
+          ? `${nextBookings.length} paket reservasi ${primaryBooking.patient_name} berhasil disimpan.`
+          : `Reservasi ${primaryBooking.patient_name} berhasil disimpan.`
+      );
     }
     setFormOpen(false);
     setEditingBooking(null);
@@ -667,6 +676,13 @@ export default function App() {
   const selectedBookingTherapist = selectedBooking
     ? therapists.find((t) => t.therapist_id === selectedBooking.therapist_id)
     : undefined;
+  const selectedBookingGroupCount = selectedBooking?.order_group_id
+    ? bookings.filter((b) => b.order_group_id === selectedBooking.order_group_id).length
+    : undefined;
+  const selectedBookingCompletedGroupCount =
+    selectedBooking && selectedBooking.status === 'COMPLETED'
+      ? findSameTimeCompletedBookings(selectedBooking, bookings).length
+      : undefined;
   const receiptService = receiptBooking
     ? services.find((s) => s.service_id === receiptBooking.service_id)
     : undefined;
@@ -974,6 +990,8 @@ export default function App() {
         booking={selectedBooking}
         service={selectedBookingService}
         therapist={selectedBookingTherapist}
+        groupPackagesCount={selectedBookingGroupCount}
+        completedGroupCount={selectedBookingCompletedGroupCount}
         userRole={currentAccount.role}
         onClose={() => setSelectedBooking(null)}
         onRequestStatusChange={handleRequestStatusChange}
@@ -1022,6 +1040,9 @@ export default function App() {
       booking={receiptBooking}
       service={receiptService}
       therapist={receiptTherapist}
+      allBookings={bookings}
+      services={services}
+      therapists={therapists}
       onClose={() => setReceiptBooking(null)}
       onEditReceipt={
         isAdmin
