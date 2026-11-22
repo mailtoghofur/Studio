@@ -548,6 +548,11 @@ export function DailyCalendarView({
                         {therapist?.name ?? booking.therapist_id} ·{' '}
                         {LOCATION_LABELS[booking.location_type]}
                       </p>
+                      {booking.cancellation_reason && (
+                        <p className="mt-0.5 text-xs text-red-800">
+                          Alasan: {booking.cancellation_reason}
+                        </p>
+                      )}
                     </div>
                     <span className="inline-flex items-center gap-1.5 text-sm font-medium text-red-800">
                       <XCircle className="h-4 w-4" />

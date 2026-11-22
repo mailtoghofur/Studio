@@ -53,6 +53,10 @@ import {
   getTodayYYYYMMDD,
 } from './lib/format';
 import { calculateProductSaleCommission } from './lib/products';
+import {
+  CANCELLATION_REASON_MAX_LENGTH,
+  validateAndCancelBooking,
+} from './lib/schedule';
 import type {
   AccountDatabase,
   Booking,
@@ -334,7 +338,7 @@ export default function App() {
     const isCancel = nextStatus === 'CANCELLED';
     const nextLabel = STATUS_LABELS[nextStatus];
 
-    const applyStatus = async () => {
+    const applyStatus = async (cancelReason?: string) => {
       const now = new Date().toISOString();
       let updatedBooking: Booking;
 
@@ -361,6 +365,29 @@ export default function App() {
             ? `Status reservasi ${booking.patient_name} diubah menjadi Selesai (Diskon ${discountCalc.discountPercent}%, total ${formatRupiah(discountCalc.finalPrice)}).`
             : `Status reservasi ${booking.patient_name} diubah menjadi ${nextLabel}.`
         );
+      } else if (nextStatus === 'CANCELLED') {
+        const cancelResult = validateAndCancelBooking({
+          booking,
+          reason: cancelReason ?? '',
+          nowIso: now,
+        });
+        if (!cancelResult.valid || !cancelResult.updatedBooking) {
+          throw new Error(cancelResult.error ?? 'Alasan pembatalan tidak valid.');
+        }
+        updatedBooking = cancelResult.updatedBooking;
+        setSelectedBooking(null);
+        if (receiptBooking?.booking_id === booking.booking_id) {
+          setReceiptBooking(null);
+        }
+        if (editingReceiptBooking?.booking_id === booking.booking_id) {
+          setEditingReceiptBooking(null);
+          setReopenReceiptAfterEdit(false);
+        }
+        setNoticeMessage(
+          updatedBooking.cancellation_reason
+            ? `Reservasi ${booking.patient_name} dibatalkan (Alasan: ${updatedBooking.cancellation_reason}).`
+            : `Status reservasi ${booking.patient_name} diubah menjadi ${nextLabel}.`
+        );
       } else {
         updatedBooking = {
           ...booking,
@@ -384,16 +411,26 @@ export default function App() {
       return;
     }
 
+    const isCancellingCompleted = booking.status === 'COMPLETED';
     setConfirmDialog({
-      title: 'Batalkan Reservasi Ini?',
-      message:
-        'Status reservasi akan diubah menjadi Dibatalkan dan slot terapis langsung tersedia kembali.',
+      title: isCancellingCompleted ? 'Batalkan Reservasi Selesai?' : 'Batalkan Reservasi Ini?',
+      message: isCancellingCompleted
+        ? 'Status reservasi akan diubah menjadi Dibatalkan dan dikeluarkan dari laporan pendapatan serta poin kesetiaan.'
+        : 'Status reservasi akan diubah menjadi Dibatalkan dan slot terapis langsung tersedia kembali.',
       details: [
         `Pasien: ${booking.patient_name}`,
         `Jadwal: ${formatDateIndo(booking.booking_date)} · ${formatTimeRange(booking.start_time, booking.end_time)} WIB`,
         `Perubahan status: ${STATUS_LABELS[booking.status]} -> ${nextLabel}`,
       ],
-      confirmLabel: 'Ya, Batalkan Jadwal',
+      reasonField: {
+        label: 'Alasan Pembatalan',
+        placeholder: isCancellingCompleted
+          ? 'Contoh: Pasien membatalkan setelah pembayaran atau salah input jadwal.'
+          : 'Opsional, contoh: Pasien berhalangan hadir.',
+        required: isCancellingCompleted,
+        maxLength: CANCELLATION_REASON_MAX_LENGTH,
+      },
+      confirmLabel: isCancellingCompleted ? 'Ya, Batalkan Reservasi' : 'Ya, Batalkan Jadwal',
       tone: 'danger',
       onConfirm: applyStatus,
     });

@@ -265,6 +265,22 @@ export function BookingDetailModal({
                 </dd>
               </div>
             )}
+
+            {isCancelled && (booking.cancellation_reason || booking.cancelled_from_status === 'COMPLETED') && (
+              <div className="flex items-start justify-between gap-4 px-4 py-3">
+                <dt className="text-neutral-600">Alasan Pembatalan</dt>
+                <dd className="max-w-[260px] text-right text-red-800">
+                  {booking.cancellation_reason && (
+                    <span className="font-medium">{booking.cancellation_reason}</span>
+                  )}
+                  {booking.cancelled_from_status === 'COMPLETED' && (
+                    <span className="mt-0.5 block text-xs text-neutral-600">
+                      Dibatalkan dari status Selesai
+                    </span>
+                  )}
+                </dd>
+              </div>
+            )}
           </dl>
 
           {/* Pilihan Status Diskon saat Penyelesaian Treatment */}
@@ -385,34 +401,47 @@ export function BookingDetailModal({
         )}
 
         {!isScheduled && (
-          <div className="mt-6 flex flex-wrap justify-end gap-2.5 border-t border-neutral-200 pt-4">
-            <button
-              type="button"
-              onClick={onClose}
-              className="min-h-[44px] rounded-xl border border-neutral-200 bg-white px-4 py-2 text-sm font-medium text-neutral-800 hover:bg-neutral-50 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-amber-700 whitespace-nowrap"
-            >
-              Tutup
-            </button>
-            {isCompleted && isAdmin && onEditReceipt && (
+          <div className="mt-6 flex flex-wrap items-center justify-between gap-2.5 border-t border-neutral-200 pt-4">
+            {isCompleted && isAdmin ? (
               <button
                 type="button"
-                onClick={() => onEditReceipt(booking)}
-                className="inline-flex min-h-[44px] items-center gap-2 rounded-xl border border-neutral-200 bg-white px-4 py-2 text-sm font-medium text-neutral-800 hover:bg-neutral-50 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-amber-700 whitespace-nowrap"
+                onClick={() => onRequestStatusChange(booking, 'CANCELLED')}
+                className="min-h-[44px] rounded-xl border border-red-200 bg-red-50 px-4 py-2 text-sm font-medium text-red-800 hover:bg-red-100 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-amber-700 whitespace-nowrap"
               >
-                <FilePenLine className="h-4 w-4 text-amber-700" />
-                <span>Perbaiki Resi</span>
+                Batalkan Reservasi
               </button>
+            ) : (
+              <div />
             )}
-            {isCompleted && (
+            <div className="flex flex-wrap justify-end gap-2.5">
               <button
                 type="button"
-                onClick={() => onOpenReceipt(booking)}
-                className="inline-flex min-h-[44px] items-center gap-2 rounded-xl bg-amber-700 px-4 py-2 text-sm font-medium text-white hover:bg-amber-800 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-amber-700 whitespace-nowrap"
+                onClick={onClose}
+                className="min-h-[44px] rounded-xl border border-neutral-200 bg-white px-4 py-2 text-sm font-medium text-neutral-800 hover:bg-neutral-50 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-amber-700 whitespace-nowrap"
               >
-                <Printer className="h-4 w-4" />
-                <span>Cetak Resi</span>
+                Tutup
               </button>
-            )}
+              {isCompleted && isAdmin && onEditReceipt && (
+                <button
+                  type="button"
+                  onClick={() => onEditReceipt(booking)}
+                  className="inline-flex min-h-[44px] items-center gap-2 rounded-xl border border-neutral-200 bg-white px-4 py-2 text-sm font-medium text-neutral-800 hover:bg-neutral-50 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-amber-700 whitespace-nowrap"
+                >
+                  <FilePenLine className="h-4 w-4 text-amber-700" />
+                  <span>Perbaiki Resi</span>
+                </button>
+              )}
+              {isCompleted && (
+                <button
+                  type="button"
+                  onClick={() => onOpenReceipt(booking)}
+                  className="inline-flex min-h-[44px] items-center gap-2 rounded-xl bg-amber-700 px-4 py-2 text-sm font-medium text-white hover:bg-amber-800 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-amber-700 whitespace-nowrap"
+                >
+                  <Printer className="h-4 w-4" />
+                  <span>Cetak Resi</span>
+                </button>
+              )}
+            </div>
           </div>
         )}
       </div>

@@ -94,6 +94,12 @@ export interface Booking {
   receipt_revised_at?: string;
   /** Alasan perbaikan resi (opsional). */
   receipt_revision_reason?: string;
+  /** Alasan pembatalan reservasi (wajib diisi saat membatalkan reservasi selesai). */
+  cancellation_reason?: string;
+  /** Waktu pembatalan reservasi (ISO string). */
+  cancelled_at?: string;
+  /** Status asal sebelum reservasi dibatalkan. */
+  cancelled_from_status?: BookingStatus;
   created_at: string;
   updated_at: string;
 }
@@ -155,11 +161,21 @@ export interface BookingValidationResult {
   effectiveLocationType: LocationType;
 }
 
+export interface ConfirmDialogReasonField {
+  label: string;
+  placeholder: string;
+  required: boolean;
+  minLength?: number;
+  maxLength?: number;
+  initialValue?: string;
+}
+
 export interface ConfirmDialogState {
   title: string;
   message: string;
   details?: string[];
+  reasonField?: ConfirmDialogReasonField;
   confirmLabel: string;
   tone?: 'primary' | 'danger';
-  onConfirm: () => Promise<void>;
+  onConfirm: (reason?: string) => Promise<void>;
 }

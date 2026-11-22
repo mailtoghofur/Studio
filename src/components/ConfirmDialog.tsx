@@ -1,7 +1,8 @@
-// Dialog konfirmasi wajib sebelum menjalankan perubahan atau pembatalan data di Google Sheets.
+// Dialog konfirmasi wajib sebelum menjalankan perubahan atau pembatalan data reservasi dan akun.
 
 import { AlertTriangle, CheckCircle2, Loader2, X } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
+import { validateCancellationReason } from '../lib/schedule';
 import type { ConfirmDialogState } from '../lib/types';
 
 interface ConfirmDialogProps {
@@ -12,13 +13,24 @@ interface ConfirmDialogProps {
 export function ConfirmDialog({ dialog, onClose }: ConfirmDialogProps) {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [submitError, setSubmitError] = useState<string | null>(null);
+  const [reasonValue, setReasonValue] = useState('');
+  const [reasonError, setReasonError] = useState<string | null>(null);
   const cancelRef = useRef<HTMLButtonElement>(null);
+  const reasonRef = useRef<HTMLTextAreaElement>(null);
 
   useEffect(() => {
     if (dialog) {
       setSubmitError(null);
+      setReasonError(null);
+      setReasonValue(dialog.reasonField?.initialValue ?? '');
       setIsSubmitting(false);
-      setTimeout(() => cancelRef.current?.focus(), 0);
+      setTimeout(() => {
+        if (dialog.reasonField?.required) {
+          reasonRef.current?.focus();
+        } else {
+          cancelRef.current?.focus();
+        }
+      }, 0);
     }
   }, [dialog]);
 
@@ -27,13 +39,23 @@ export function ConfirmDialog({ dialog, onClose }: ConfirmDialogProps) {
   const isDanger = dialog.tone === 'danger';
 
   const handleConfirm = async () => {
+    if (dialog.reasonField) {
+      const check = validateCancellationReason(reasonValue, dialog.reasonField.required);
+      if (!check.valid) {
+        setReasonError(check.error ?? 'Isi alasan pembatalan terlebih dahulu.');
+        reasonRef.current?.focus();
+        return;
+      }
+      setReasonError(null);
+    }
+
     setIsSubmitting(true);
     setSubmitError(null);
     try {
-      await dialog.onConfirm();
+      await dialog.onConfirm(dialog.reasonField ? reasonValue.trim() : undefined);
       onClose();
     } catch (err) {
-      const msg = err instanceof Error ? err.message : 'Gagal menyimpan perubahan ke Google Sheets.';
+      const msg = err instanceof Error ? err.message : 'Gagal menyimpan perubahan data.';
       setSubmitError(msg);
     } finally {
       setIsSubmitting(false);
@@ -85,6 +107,33 @@ export function ConfirmDialog({ dialog, onClose }: ConfirmDialogProps) {
           </ul>
         )}
 
+        {dialog.reasonField && (
+          <div className="mt-4">
+            <label
+              htmlFor="confirm-dialog-reason"
+              className="block text-sm font-medium text-neutral-800"
+            >
+              {dialog.reasonField.label}{' '}
+              {dialog.reasonField.required && <span className="text-red-700">*</span>}
+            </label>
+            <textarea
+              ref={reasonRef}
+              id="confirm-dialog-reason"
+              name="cancellationReason"
+              rows={3}
+              maxLength={dialog.reasonField.maxLength ?? 200}
+              value={reasonValue}
+              onChange={(e) => {
+                setReasonValue(e.target.value);
+                if (reasonError) setReasonError(null);
+              }}
+              placeholder={dialog.reasonField.placeholder}
+              className="mt-1.5 w-full rounded-xl border border-neutral-200 bg-white px-3.5 py-2.5 text-base text-neutral-900 placeholder:text-neutral-500 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-amber-700"
+            />
+            {reasonError && <p className="mt-1.5 text-sm text-red-700">{reasonError}</p>}
+          </div>
+        )}
+
         {submitError && (
           <div
             role="alert"
@@ -120,3 +169,4 @@ export function ConfirmDialog({ dialog, onClose }: ConfirmDialogProps) {
     </div>
   );
 }
+

@@ -298,3 +298,73 @@ export function filterServicesByQuery(services: Service[], rawQuery: string): Se
   return services.filter((service) => matchesServiceSearch(service, trimmed));
 }
 
+export const CANCELLATION_REASON_MIN_LENGTH = 3;
+export const CANCELLATION_REASON_MAX_LENGTH = 200;
+
+export function validateCancellationReason(
+  rawReason: string,
+  required: boolean
+): { valid: boolean; trimmedReason: string; error?: string } {
+  const trimmedReason = rawReason.trim();
+  if (required && !trimmedReason) {
+    return {
+      valid: false,
+      trimmedReason,
+      error:
+        'Isi alasan pembatalan reservasi selesai, contoh: Pasien membatalkan setelah pembayaran.',
+    };
+  }
+  if (trimmedReason && trimmedReason.length < CANCELLATION_REASON_MIN_LENGTH) {
+    return {
+      valid: false,
+      trimmedReason,
+      error: `Alasan pembatalan minimal ${CANCELLATION_REASON_MIN_LENGTH} karakter, contoh: Salah input jadwal selesai.`,
+    };
+  }
+  if (trimmedReason.length > CANCELLATION_REASON_MAX_LENGTH) {
+    return {
+      valid: false,
+      trimmedReason,
+      error: `Alasan pembatalan maksimal ${CANCELLATION_REASON_MAX_LENGTH} karakter.`,
+    };
+  }
+  return { valid: true, trimmedReason };
+}
+
+export function validateAndCancelBooking(params: {
+  booking: Booking;
+  reason: string;
+  nowIso?: string;
+}): { valid: boolean; error?: string; updatedBooking?: Booking } {
+  const { booking, reason, nowIso = new Date().toISOString() } = params;
+
+  if (booking.status === 'CANCELLED') {
+    return {
+      valid: false,
+      error: 'Reservasi ini sudah berstatus Dibatalkan.',
+    };
+  }
+
+  const requiresReason = booking.status === 'COMPLETED';
+  const check = validateCancellationReason(reason, requiresReason);
+  if (!check.valid) {
+    return {
+      valid: false,
+      error: check.error,
+    };
+  }
+
+  const updatedBooking: Booking = {
+    ...booking,
+    status: 'CANCELLED',
+    cancellation_reason: check.trimmedReason || undefined,
+    cancelled_at: nowIso,
+    cancelled_from_status: booking.status,
+    updated_at: nowIso,
+  };
+
+  return {
+    valid: true,
+    updatedBooking,
+  };
+}

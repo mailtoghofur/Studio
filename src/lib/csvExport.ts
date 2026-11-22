@@ -46,6 +46,8 @@ export function exportBookingsCsv(bookings: Booking[]): void {
       'patient_address',
       'notes',
       'status',
+      'cancellation_reason',
+      'cancelled_at',
       'created_at',
       'updated_at',
     ],
@@ -62,6 +64,8 @@ export function exportBookingsCsv(bookings: Booking[]): void {
       b.patient_address,
       b.notes,
       b.status,
+      b.cancellation_reason ?? '',
+      b.cancelled_at ?? '',
       b.created_at,
       b.updated_at,
     ])
