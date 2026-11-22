@@ -185,8 +185,10 @@ export default function App() {
   const [firebaseUser, setFirebaseUser] = useState<User | null>(null);
   const [authReady, setAuthReady] = useState(false);
   const [isSyncingCloud, setIsSyncingCloud] = useState(false);
+  const [cloudSyncPaused, setCloudSyncPaused] = useState(false);
   const [firestoreFatalError, setFirestoreFatalError] = useState<Error | null>(null);
   const accountDbRef = useRef<AccountDatabase | null>(null);
+  const cloudMutationQueueRef = useRef<Promise<void>>(Promise.resolve());
 
   if (firestoreFatalError) {
     throw firestoreFatalError;
@@ -229,7 +231,13 @@ export default function App() {
   }, [currentAccount, currentOwnerId, accounts]);
 
   useEffect(() => {
-    if (!authReady || !firebaseUser || !firebaseUser.emailVerified || !currentAccountId) {
+    if (
+      cloudSyncPaused ||
+      !authReady ||
+      !firebaseUser ||
+      !firebaseUser.emailVerified ||
+      !currentAccountId
+    ) {
       return;
     }
 
@@ -321,7 +329,7 @@ export default function App() {
       cancelled = true;
       if (unsubscribeCollections) unsubscribeCollections();
     };
-  }, [authReady, firebaseUser, currentAccountId]);
+  }, [authReady, firebaseUser, currentAccountId, cloudSyncPaused]);
 
   const workspaceAccounts = useMemo(() => {
     if (!currentAccount || !currentOwnerId) return [];
@@ -352,9 +360,11 @@ export default function App() {
 
   const runCloudMutation = (task: () => Promise<void>) => {
     if (!firebaseUser || !firebaseUser.emailVerified) return;
-    void task().catch((err) => {
-      setFirestoreFatalError(err instanceof Error ? err : new Error(String(err)));
-    });
+    cloudMutationQueueRef.current = cloudMutationQueueRef.current
+      .then(() => task())
+      .catch((err) => {
+        setFirestoreFatalError(err instanceof Error ? err : new Error(String(err)));
+      });
   };
 
   const handleGoogleLoginSuccess = async (user: User) => {
@@ -810,13 +820,20 @@ export default function App() {
 
   const handleConnectGoogleCloud = async () => {
     setIsSyncingCloud(true);
+    setCloudSyncPaused(true);
     try {
       const cred = await signInWithPopup(auth, googleAuthProvider);
-      if (accountDb) {
-        await syncLocalDatabaseToFirestore(cred.user, accountDb);
+      if (!cred.user.emailVerified) {
+        await signOut(auth);
+        throw new Error('Akun Google ini belum memiliki email terverifikasi.');
+      }
+      const latestDb = accountDbRef.current ?? accountDb;
+      if (latestDb) {
+        await syncLocalDatabaseToFirestore(cred.user, latestDb);
       }
       setNoticeMessage(`Terhubung ke Cloud Firestore (${cred.user.email || cred.user.displayName}).`);
     } finally {
+      setCloudSyncPaused(false);
       setIsSyncingCloud(false);
     }
   };
@@ -828,11 +845,16 @@ export default function App() {
 
   const handleSyncLocalToCloud = async () => {
     if (!firebaseUser || !accountDb) return;
+    if (!firebaseUser.emailVerified) {
+      throw new Error('Akun Google ini belum memiliki email terverifikasi.');
+    }
     setIsSyncingCloud(true);
+    setCloudSyncPaused(true);
     try {
-      await syncLocalDatabaseToFirestore(firebaseUser, accountDb);
+      await syncLocalDatabaseToFirestore(firebaseUser, accountDbRef.current ?? accountDb);
       setNoticeMessage('Data klinik berhasil disinkronkan ke Cloud Firestore.');
     } finally {
+      setCloudSyncPaused(false);
       setIsSyncingCloud(false);
     }
   };

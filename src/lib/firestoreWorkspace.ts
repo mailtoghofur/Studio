@@ -90,125 +90,138 @@ function fromProductSaleDoc(raw: Record<string, unknown>): ProductSale {
   };
 }
 
-export async function ensureWorkspaceInitialized(
+const initInFlight = new Map<string, Promise<boolean>>();
+
+export function ensureWorkspaceInitialized(
   user: User,
   seedDb?: Partial<AccountDatabase> | null
 ): Promise<boolean> {
-  const workspacePath = `workspaces/${user.uid}`;
-  const workspaceRef = doc(db, 'workspaces', user.uid);
-
-  let exists = false;
-  try {
-    const snap = await getDoc(workspaceRef);
-    exists = snap.exists();
-  } catch (error) {
-    handleFirestoreError(error, OperationType.GET, workspacePath);
+  const existingPromise = initInFlight.get(user.uid);
+  if (existingPromise) {
+    return existingPromise;
   }
 
-  if (exists) {
-    return false;
-  }
+  const run = (async () => {
+    const workspacePath = `workspaces/${user.uid}`;
+    const workspaceRef = doc(db, 'workspaces', user.uid);
 
-  const therapists =
-    seedDb?.therapists && seedDb.therapists.length > 0 ? seedDb.therapists : DEFAULT_THERAPISTS;
-  const services =
-    seedDb?.services && seedDb.services.length > 0 ? seedDb.services : DEFAULT_SERVICES;
-  const products =
-    seedDb?.products && seedDb.products.length > 0 ? seedDb.products : DEFAULT_PRODUCTS;
-  const bookings = seedDb?.bookings ?? [];
-  const productSales = seedDb?.product_sales ?? [];
+    let exists = false;
+    try {
+      const snap = await getDoc(workspaceRef);
+      exists = snap.exists();
+    } catch (error) {
+      handleFirestoreError(error, OperationType.GET, workspacePath);
+    }
 
-  const workspacePayload = buildWorkspacePayload({
-    uid: user.uid,
-    clinicName: CLINIC_NAME,
-    ownerName: user.displayName || seedDb?.owner_username || 'Admin Klinik',
-    ownerEmail: user.email || 'klinik@example.com',
+    if (exists) {
+      return false;
+    }
+
+    const therapists =
+      seedDb?.therapists && seedDb.therapists.length > 0 ? seedDb.therapists : DEFAULT_THERAPISTS;
+    const services =
+      seedDb?.services && seedDb.services.length > 0 ? seedDb.services : DEFAULT_SERVICES;
+    const products =
+      seedDb?.products && seedDb.products.length > 0 ? seedDb.products : DEFAULT_PRODUCTS;
+    const bookings = seedDb?.bookings ?? [];
+    const productSales = seedDb?.product_sales ?? [];
+
+    const workspacePayload = buildWorkspacePayload({
+      uid: user.uid,
+      clinicName: CLINIC_NAME,
+      ownerName: user.displayName || seedDb?.owner_username || 'Admin Klinik',
+      ownerEmail: user.email || 'klinik@example.com',
+    });
+
+    try {
+      // Buat dokumen induk ruang kerja terlebih dahulu agar subkoleksi tidak melebihi batas lookup batch Firestore
+      await setDoc(workspaceRef, {
+        ...workspacePayload,
+        createdAt: serverTimestamp(),
+        updatedAt: serverTimestamp(),
+      });
+
+      const therapistIds = new Set<string>();
+      const serviceIds = new Set<string>();
+      const productIds = new Set<string>();
+
+      await Promise.all([
+        ...therapists.map((therapist) => {
+          const payload = buildTherapistPayload(user.uid, user.uid, therapist);
+          therapistIds.add(payload.therapist_id);
+          return setDoc(doc(db, 'workspaces', user.uid, 'therapists', payload.therapist_id), {
+            ...payload,
+            createdAt: serverTimestamp(),
+            updatedAt: serverTimestamp(),
+          });
+        }),
+        ...services.map((service) => {
+          const payload = buildServicePayload(user.uid, user.uid, service);
+          serviceIds.add(payload.service_id);
+          return setDoc(doc(db, 'workspaces', user.uid, 'services', payload.service_id), {
+            ...payload,
+            createdAt: serverTimestamp(),
+            updatedAt: serverTimestamp(),
+          });
+        }),
+        ...products.map((product) => {
+          const payload = buildProductPayload(user.uid, user.uid, product);
+          productIds.add(payload.product_id);
+          return setDoc(doc(db, 'workspaces', user.uid, 'products', payload.product_id), {
+            ...payload,
+            createdAt: serverTimestamp(),
+            updatedAt: serverTimestamp(),
+          });
+        }),
+      ]);
+
+      const validBookings = bookings.filter((b) => {
+        const p = buildBookingPayload(user.uid, user.uid, b);
+        return serviceIds.has(p.service_id) && therapistIds.has(p.therapist_id);
+      });
+      const validSales = productSales.filter((s) => {
+        const p = buildProductSalePayload(user.uid, user.uid, s);
+        return productIds.has(p.product_id) && therapistIds.has(p.therapist_id);
+      });
+
+      for (let i = 0; i < validBookings.length; i += 10) {
+        const chunk = validBookings.slice(i, i + 10);
+        await Promise.all(
+          chunk.map((b) => {
+            const payload = buildBookingPayload(user.uid, user.uid, b);
+            return setDoc(doc(db, 'workspaces', user.uid, 'bookings', payload.booking_id), {
+              ...payload,
+              createdAt: serverTimestamp(),
+              updatedAt: serverTimestamp(),
+            });
+          })
+        );
+      }
+
+      for (let i = 0; i < validSales.length; i += 10) {
+        const chunk = validSales.slice(i, i + 10);
+        await Promise.all(
+          chunk.map((s) => {
+            const payload = buildProductSalePayload(user.uid, user.uid, s);
+            return setDoc(doc(db, 'workspaces', user.uid, 'product_sales', payload.sale_id), {
+              ...payload,
+              createdAt: serverTimestamp(),
+              updatedAt: serverTimestamp(),
+            });
+          })
+        );
+      }
+    } catch (error) {
+      handleFirestoreError(error, OperationType.WRITE, workspacePath);
+    }
+
+    return true;
+  })().finally(() => {
+    initInFlight.delete(user.uid);
   });
 
-  try {
-    const masterBatch = writeBatch(db);
-    masterBatch.set(workspaceRef, {
-      ...workspacePayload,
-      createdAt: serverTimestamp(),
-      updatedAt: serverTimestamp(),
-    });
-
-    const therapistIds = new Set<string>();
-    for (const therapist of therapists) {
-      const payload = buildTherapistPayload(user.uid, user.uid, therapist);
-      therapistIds.add(payload.therapist_id);
-      masterBatch.set(doc(db, 'workspaces', user.uid, 'therapists', payload.therapist_id), {
-        ...payload,
-        createdAt: serverTimestamp(),
-        updatedAt: serverTimestamp(),
-      });
-    }
-
-    const serviceIds = new Set<string>();
-    for (const service of services) {
-      const payload = buildServicePayload(user.uid, user.uid, service);
-      serviceIds.add(payload.service_id);
-      masterBatch.set(doc(db, 'workspaces', user.uid, 'services', payload.service_id), {
-        ...payload,
-        createdAt: serverTimestamp(),
-        updatedAt: serverTimestamp(),
-      });
-    }
-
-    const productIds = new Set<string>();
-    for (const product of products) {
-      const payload = buildProductPayload(user.uid, user.uid, product);
-      productIds.add(payload.product_id);
-      masterBatch.set(doc(db, 'workspaces', user.uid, 'products', payload.product_id), {
-        ...payload,
-        createdAt: serverTimestamp(),
-        updatedAt: serverTimestamp(),
-      });
-    }
-
-    await masterBatch.commit();
-
-    const validBookings = bookings.filter((b) => {
-      const p = buildBookingPayload(user.uid, user.uid, b);
-      return serviceIds.has(p.service_id) && therapistIds.has(p.therapist_id);
-    });
-    const validSales = productSales.filter((s) => {
-      const p = buildProductSalePayload(user.uid, user.uid, s);
-      return productIds.has(p.product_id) && therapistIds.has(p.therapist_id);
-    });
-
-    for (let i = 0; i < validBookings.length; i += 400) {
-      const chunk = validBookings.slice(i, i + 400);
-      const batch = writeBatch(db);
-      for (const b of chunk) {
-        const payload = buildBookingPayload(user.uid, user.uid, b);
-        batch.set(doc(db, 'workspaces', user.uid, 'bookings', payload.booking_id), {
-          ...payload,
-          createdAt: serverTimestamp(),
-          updatedAt: serverTimestamp(),
-        });
-      }
-      await batch.commit();
-    }
-
-    for (let i = 0; i < validSales.length; i += 400) {
-      const chunk = validSales.slice(i, i + 400);
-      const batch = writeBatch(db);
-      for (const s of chunk) {
-        const payload = buildProductSalePayload(user.uid, user.uid, s);
-        batch.set(doc(db, 'workspaces', user.uid, 'product_sales', payload.sale_id), {
-          ...payload,
-          createdAt: serverTimestamp(),
-          updatedAt: serverTimestamp(),
-        });
-      }
-      await batch.commit();
-    }
-  } catch (error) {
-    handleFirestoreError(error, OperationType.WRITE, workspacePath);
-  }
-
-  return true;
+  initInFlight.set(user.uid, run);
+  return run;
 }
 
 export function subscribeWorkspaceCollections(
@@ -538,20 +551,23 @@ export async function syncLocalDatabaseToFirestore(
   database: AccountDatabase
 ): Promise<void> {
   const uid = user.uid;
-  await ensureWorkspaceInitialized(user, database);
-
-  for (const t of database.therapists) {
-    await saveTherapistToFirestore(uid, t);
-  }
-  for (const s of database.services) {
-    await saveServiceToFirestore(uid, s);
-  }
-  for (const p of database.products ?? DEFAULT_PRODUCTS) {
-    await saveProductToFirestore(uid, p);
+  const createdNew = await ensureWorkspaceInitialized(user, database);
+  if (createdNew) {
+    return;
   }
 
-  const therapistIds = new Set(database.therapists.map((t) => buildTherapistPayload(uid, uid, t).therapist_id));
-  const serviceIds = new Set(database.services.map((s) => buildServicePayload(uid, uid, s).service_id));
+  await Promise.all([
+    ...database.therapists.map((t) => saveTherapistToFirestore(uid, t)),
+    ...database.services.map((s) => saveServiceToFirestore(uid, s)),
+    ...(database.products ?? DEFAULT_PRODUCTS).map((p) => saveProductToFirestore(uid, p)),
+  ]);
+
+  const therapistIds = new Set(
+    database.therapists.map((t) => buildTherapistPayload(uid, uid, t).therapist_id)
+  );
+  const serviceIds = new Set(
+    database.services.map((s) => buildServicePayload(uid, uid, s).service_id)
+  );
   const productIds = new Set(
     (database.products ?? DEFAULT_PRODUCTS).map((p) => buildProductPayload(uid, uid, p).product_id)
   );
@@ -560,13 +576,17 @@ export async function syncLocalDatabaseToFirestore(
     const bp = buildBookingPayload(uid, uid, b);
     if (!therapistIds.has(bp.therapist_id) || !serviceIds.has(bp.service_id)) continue;
     const bookingRef = doc(db, 'workspaces', uid, 'bookings', bp.booking_id);
-    const snap = await getDoc(bookingRef);
-    if (!snap.exists()) {
-      await saveBookingToFirestore(uid, b, 'create');
-    } else if (bp.status === 'SCHEDULED') {
-      await saveBookingToFirestore(uid, b, 'reschedule');
-    } else if (bp.status === 'COMPLETED' && bp.receipt_revised_at) {
-      await saveBookingToFirestore(uid, b, 'revise');
+    try {
+      const snap = await getDoc(bookingRef);
+      if (!snap.exists()) {
+        await saveBookingToFirestore(uid, b, 'create');
+      } else if (bp.status === 'SCHEDULED') {
+        await saveBookingToFirestore(uid, b, 'reschedule');
+      } else if (bp.status === 'COMPLETED' && bp.receipt_revised_at) {
+        await saveBookingToFirestore(uid, b, 'revise');
+      }
+    } catch (error) {
+      handleFirestoreError(error, OperationType.WRITE, `workspaces/${uid}/bookings/${bp.booking_id}`);
     }
   }
 
@@ -574,11 +594,15 @@ export async function syncLocalDatabaseToFirestore(
     const sp = buildProductSalePayload(uid, uid, sale);
     if (!therapistIds.has(sp.therapist_id) || !productIds.has(sp.product_id)) continue;
     const saleRef = doc(db, 'workspaces', uid, 'product_sales', sp.sale_id);
-    const snap = await getDoc(saleRef);
-    if (!snap.exists()) {
-      await saveProductSaleToFirestore(uid, sale, 'create');
-    } else if (sp.status === 'CANCELLED' && snap.data()?.status === 'COMPLETED') {
-      await saveProductSaleToFirestore(uid, sale, 'cancel');
+    try {
+      const snap = await getDoc(saleRef);
+      if (!snap.exists()) {
+        await saveProductSaleToFirestore(uid, sale, 'create');
+      } else if (sp.status === 'CANCELLED' && snap.data()?.status === 'COMPLETED') {
+        await saveProductSaleToFirestore(uid, sale, 'cancel');
+      }
+    } catch (error) {
+      handleFirestoreError(error, OperationType.WRITE, `workspaces/${uid}/product_sales/${sp.sale_id}`);
     }
   }
 }
@@ -593,9 +617,10 @@ export async function resetFirestoreBookingsAndSales(
     const bookingSnap = await getDocs(
       query(collection(db, 'workspaces', uid, 'bookings'), where('ownerId', '==', uid))
     );
-    for (let i = 0; i < bookingSnap.docs.length; i += 400) {
+    // Hapus maksimal 8 dokumen per batch agar total rule lookup tetap <= 20
+    for (let i = 0; i < bookingSnap.docs.length; i += 8) {
       const batch = writeBatch(db);
-      for (const d of bookingSnap.docs.slice(i, i + 400)) {
+      for (const d of bookingSnap.docs.slice(i, i + 8)) {
         batch.delete(d.ref);
       }
       await batch.commit();
@@ -604,9 +629,9 @@ export async function resetFirestoreBookingsAndSales(
     const salesSnap = await getDocs(
       query(collection(db, 'workspaces', uid, 'product_sales'), where('ownerId', '==', uid))
     );
-    for (let i = 0; i < salesSnap.docs.length; i += 400) {
+    for (let i = 0; i < salesSnap.docs.length; i += 8) {
       const batch = writeBatch(db);
-      for (const d of salesSnap.docs.slice(i, i + 400)) {
+      for (const d of salesSnap.docs.slice(i, i + 8)) {
         batch.delete(d.ref);
       }
       await batch.commit();

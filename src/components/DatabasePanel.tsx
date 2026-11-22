@@ -106,7 +106,21 @@ export function DatabasePanel({
     try {
       await fn();
     } catch (err) {
-      setCloudError(err instanceof Error ? err.message : 'Gagal menyinkronkan ke Cloud Firestore.');
+      let msg = err instanceof Error ? err.message : 'Gagal menyinkronkan ke Cloud Firestore.';
+      try {
+        const parsed = JSON.parse(msg) as { error?: string };
+        if (parsed && typeof parsed.error === 'string') {
+          msg = parsed.error;
+        }
+      } catch {
+        // Gunakan pesan asli
+      }
+      if (msg.includes('Missing or insufficient permissions')) {
+        msg = 'Akses sinkronisasi ditolak oleh aturan keamanan Firestore. Pastikan akun Google terverifikasi dan coba muat ulang halaman.';
+      } else if (msg.includes('Quota exceeded')) {
+        msg = 'Kuota penggunaan harian Firestore telah tercapai dan akan direset esok hari.';
+      }
+      setCloudError(msg);
     }
   };
 

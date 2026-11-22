@@ -447,8 +447,8 @@ service cloud.firestore {
         && incoming().createdAt == existing().createdAt
         && incoming().updatedAt == request.time
         && (
-          isAdmin()
-          || incoming().diff(existing()).affectedKeys().hasOnly(['clinicName', 'ownerName', 'updatedAt'])
+          incoming().diff(existing()).affectedKeys().hasOnly(['clinicName', 'ownerName', 'updatedAt'])
+          || isAdmin()
         );
       allow delete: if isValidId(workspaceId) && isVerifiedSignedIn() && (isOwner(workspaceId) || isAdmin());
 
@@ -474,8 +474,8 @@ service cloud.firestore {
           && incoming().createdAt == existing().createdAt
           && incoming().updatedAt == request.time
           && (
-            isAdmin()
-            || incoming().diff(existing()).affectedKeys().hasOnly(['name', 'is_active', 'updatedAt'])
+            incoming().diff(existing()).affectedKeys().hasOnly(['name', 'is_active', 'updatedAt'])
+            || isAdmin()
           );
         allow delete: if isValidId(workspaceId) && isValidEntityId(therapistId) && (hasWorkspaceAccess(workspaceId) || isAdmin());
       }
@@ -502,8 +502,7 @@ service cloud.firestore {
           && incoming().createdAt == existing().createdAt
           && incoming().updatedAt == request.time
           && (
-            isAdmin()
-            || incoming().diff(existing()).affectedKeys().hasOnly([
+            incoming().diff(existing()).affectedKeys().hasOnly([
               'category',
               'service_name',
               'duration_minutes',
@@ -511,6 +510,7 @@ service cloud.firestore {
               'allow_home_service',
               'updatedAt'
             ])
+            || isAdmin()
           );
         allow delete: if isValidId(workspaceId) && isValidEntityId(serviceId) && (hasWorkspaceAccess(workspaceId) || isAdmin());
       }
@@ -537,8 +537,8 @@ service cloud.firestore {
           && incoming().createdAt == existing().createdAt
           && incoming().updatedAt == request.time
           && (
-            isAdmin()
-            || incoming().diff(existing()).affectedKeys().hasOnly(['product_name', 'price', 'is_active', 'updatedAt'])
+            incoming().diff(existing()).affectedKeys().hasOnly(['product_name', 'price', 'is_active', 'updatedAt'])
+            || isAdmin()
           );
         allow delete: if isValidId(workspaceId) && isValidEntityId(productId) && (hasWorkspaceAccess(workspaceId) || isAdmin());
       }
@@ -570,8 +570,7 @@ service cloud.firestore {
           && existsAfter(/databases/$(database)/documents/workspaces/$(workspaceId)/services/$(incoming().service_id))
           && existsAfter(/databases/$(database)/documents/workspaces/$(workspaceId)/therapists/$(incoming().therapist_id))
           && (
-            isAdmin()
-            || (
+            (
               // Action: Reschedule while still SCHEDULED
               existing().status == 'SCHEDULED'
               && incoming().status == 'SCHEDULED'
@@ -628,6 +627,7 @@ service cloud.firestore {
                 'updatedAt'
               ])
             )
+            || isAdmin()
           );
         allow delete: if isValidId(workspaceId) && isValidEntityId(bookingId) && (hasWorkspaceAccess(workspaceId) || isAdmin());
       }
@@ -657,8 +657,7 @@ service cloud.firestore {
           && incoming().created_at_iso == existing().created_at_iso
           && incoming().updatedAt == request.time
           && (
-            isAdmin()
-            || (
+            (
               // Action: Cancel completed product sale (Terminal state locking: CANCELLED cannot revert)
               existing().status == 'COMPLETED'
               && incoming().status == 'CANCELLED'
@@ -668,6 +667,7 @@ service cloud.firestore {
                 'updatedAt'
               ])
             )
+            || isAdmin()
           );
         allow delete: if isValidId(workspaceId) && isValidEntityId(saleId) && (hasWorkspaceAccess(workspaceId) || isAdmin());
       }
